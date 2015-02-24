@@ -425,6 +425,10 @@ func decodeBody(resp *http.Response, out interface{}) error {
 		return err
 	}
 
+	if os.Getenv("VCLOUDAIR_SHOW_BODY") == "true" {
+		fmt.Printf("%+v\n", string(body))
+	}
+
 	// Unmarshal the XML.
 	if err = xml.Unmarshal(body, &out); err != nil {
 		return err

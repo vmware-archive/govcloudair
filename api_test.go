@@ -12,6 +12,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/emccode/govcloudair/types/vcav1"
 	"github.com/vmware/govcloudair/testutil"
 	. "gopkg.in/check.v1"
 )
@@ -26,6 +27,8 @@ func Test(t *testing.T) { TestingT(t) }
 type S struct {
 	client *Client
 	vdc    Vdc
+	vdcod  Vdc
+	org    Org
 	vapp   *VApp
 }
 
@@ -34,6 +37,8 @@ var _ = Suite(&S{})
 var testServer = testutil.NewHTTPServer()
 
 var authheader = map[string]string{"x-vchs-authorization": "012345678901234567890123456789"}
+var odauthheader = map[string]string{"Vchs-Authorization": "eyJhbGciOiJSUzI1NiJ9.eyJqdGkiOiJhM2FiMzM2Mi02ZDAwLTQ5OWMtYjY4NS1iMzhjMzJhNDkwYjciLCJzdWIiOiI2ZDdmYmU4Zi03MDM3LTQxMzUtOWRmMi02ZDU3OTY0NmJmODAiLCJzY29wZSI6WyIxIiwib3BlbmlkIl0sImNsaWVudF9pZCI6InZjaHNfc2MiLCJncmFudF90eXBlIjoiaW1wbGljaXQiLCJ1c2VyX2lkIjoiNmQ3ZmJlOGYtNzAzNy00MTM1LTlkZjItNmQ1Nzk2NDZiZjgwIiwiZW1haWwiOiJjbGludG9uc2tpdHNvbkBnbWFpbC5jb20iLCJ1c2VyX25hbWUiOiJjbGludG9uc2tpdHNvbkBnbWFpbC5jb20iLCJjb21wYW55X2lkIjoiY2JhZDA2YjQtMWE3YS00ZGI3LTk4NmYtYzFhOTgxNmI4NjAyIiwiY29tcGFueV9uYW1lIjoiQ2xpbnRvbiBLaXRzb24iLCJjdXN0b21lcl9udW1iZXIiOiI1ODQ5NTUzMDg1Iiwic2dfaWQiOlsiNGZkZTE5YTQtNzYyMS00MjhlLWIxOTAtZGQ0ZGIyZTE1OGNkIl0sInZlcnNpb24iOiIxLjAiLCJwbGFucyI6W10sImlhdCI6MTQyNDc5NzkyMCwiZXhwIjoxNDI0Nzk4ODIwLCJpc3MiOiJodHRwczovL2lhbS52Y2hzLnZtd2FyZS5jb20vb2F1dGgvdG9rZW4iLCJhdWQiOlsib3BlbmlkIl19.ZJQaxWHNa7TYbu24-Sp1VZ3Ig8GdPiBwIxmrS0CoCj7_eh6g1Rjc29On7uo1U-indmi60aAF36LamVN36ImWj2LjAatTPsJOYMXzZ1p4mtr7RhQOn_i2eOilTeXFrivPfO-5UQCGYPSLsc7tYtiK96d2m1PR8kzzf8wCFQfreBsFS4zDmr9Cn27479js7SHfCUaiBxEaagCGRniowKzTHRjWLXkoOX7hBgzcgxP4GATkbMJvouquFe5HDx1uBen65HUOEb7EJWumJ-MO2h3s7FSlGYMD_TXhosu-Y3PTKj7epAjhg22tJvUGra-wMUzoI0Ba6WidNaz5oiP8IRx02w"}
+var odvcdauthheader = map[string]string{"x-vcloud-authorization": "012345678901234567890123456789"}
 
 func (s *S) SetUpSuite(c *C) {
 	testServer.Start()
@@ -46,16 +51,29 @@ func (s *S) SetUpSuite(c *C) {
 		panic(err)
 	}
 
-	testServer.ResponseMap(5, testutil.ResponseMap{
+	testServer.ResponseMap(9, testutil.ResponseMap{
 		"/api/vchs/sessions":                                                                                            testutil.Response{201, authheader, vaauthorization},
 		"/api/vchs/services":                                                                                            testutil.Response{200, nil, vaservices},
 		"/api/vchs/compute/00000000-0000-0000-0000-000000000000":                                                        testutil.Response{200, nil, vacompute},
 		"/api/vchs/compute/00000000-0000-0000-0000-000000000000/vdc/00000000-0000-0000-0000-000000000000/vcloudsession": testutil.Response{201, nil, vabackend},
 		"/api/vdc/00000000-0000-0000-0000-000000000000":                                                                 testutil.Response{200, nil, vdcExample},
+		"/api/vdc/214cd6b2-3f7a-4ee5-9b0a-52b4001a4a84":                                                                 testutil.Response{200, nil, vdcExample},
+		"/api/iam/login":                                                                                                testutil.Response{200, odauthheader, loginResponseBodyExample},
+		"/api/compute/api/sessions":                                                                                     testutil.Response{200, odvcdauthheader, odsession},
+		"/api/compute/api/org/00000000-0000-0000-0000-000000000000":                                                     testutil.Response{200, nil, orgExample},
 	})
 
 	s.vdc, err = s.client.Authenticate("username", "password", "CI123456-789", "VDC12345-6789")
 	s.vapp = NewVApp(s.client)
+
+	err = s.client.AuthenticateOD("username", "password")
+	instanceAttributes := vcatypes.InstanceAttributes{OrgName: "00000000-0000-0000-0000-000000000000", SessionURI: "http://localhost:4444/api/compute/api/sessions", APIVersionURI: "http://localhost:4444/api/compute/api/versions"}
+	err = s.client.GetBackendAuthOD(instanceAttributes)
+	links, err := GetOrgVdc(s.client, &s.client.VCDORGHREF)
+	vdcUri, err := url.ParseRequestURI(links[0].HREF)
+	s.client.VCDVDCHREF = *vdcUri
+	s.vdcod, err = s.client.retrieveVDC()
+
 	_ = testServer.WaitRequests(5)
 	testServer.Flush()
 	if err != nil {
@@ -120,6 +138,67 @@ func TestClient_vaauthorize(t *testing.T) {
 
 	// Test an un-parsable response.
 	testServer.Response(200, authheader, notfoundErr)
+	_, err = client.vaauthorize("username", "password")
+	_ = testServer.WaitRequest()
+	if err == nil {
+		t.Fatalf("Request error not caught: %v", err)
+	}
+
+}
+
+func TestClient_vaauthorizeod(t *testing.T) {
+	testServer.Start()
+	var err error
+
+	// Set up a working client
+	os.Setenv("VCLOUDAIR_ENDPOINT", "http://localhost:4444/api")
+
+	client, err := NewClient()
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	// Set up a correct conversation
+	testServer.Response(200, odauthheader, loginResponseBodyExample)
+	err = client.vaauthorizeod("username", "password")
+	_ = testServer.WaitRequest()
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	// Test if token is correctly set on client.
+	if client.VAToken != `Bearer eyJhbGciOiJSUzI1NiJ9.eyJqdGkiOiJhM2FiMzM2Mi02ZDAwLTQ5OWMtYjY4NS1iMzhjMzJhNDkwYjciLCJzdWIiOiI2ZDdmYmU4Zi03MDM3LTQxMzUtOWRmMi02ZDU3OTY0NmJmODAiLCJzY29wZSI6WyIxIiwib3BlbmlkIl0sImNsaWVudF9pZCI6InZjaHNfc2MiLCJncmFudF90eXBlIjoiaW1wbGljaXQiLCJ1c2VyX2lkIjoiNmQ3ZmJlOGYtNzAzNy00MTM1LTlkZjItNmQ1Nzk2NDZiZjgwIiwiZW1haWwiOiJjbGludG9uc2tpdHNvbkBnbWFpbC5jb20iLCJ1c2VyX25hbWUiOiJjbGludG9uc2tpdHNvbkBnbWFpbC5jb20iLCJjb21wYW55X2lkIjoiY2JhZDA2YjQtMWE3YS00ZGI3LTk4NmYtYzFhOTgxNmI4NjAyIiwiY29tcGFueV9uYW1lIjoiQ2xpbnRvbiBLaXRzb24iLCJjdXN0b21lcl9udW1iZXIiOiI1ODQ5NTUzMDg1Iiwic2dfaWQiOlsiNGZkZTE5YTQtNzYyMS00MjhlLWIxOTAtZGQ0ZGIyZTE1OGNkIl0sInZlcnNpb24iOiIxLjAiLCJwbGFucyI6W10sImlhdCI6MTQyNDc5NzkyMCwiZXhwIjoxNDI0Nzk4ODIwLCJpc3MiOiJodHRwczovL2lhbS52Y2hzLnZtd2FyZS5jb20vb2F1dGgvdG9rZW4iLCJhdWQiOlsib3BlbmlkIl19.ZJQaxWHNa7TYbu24-Sp1VZ3Ig8GdPiBwIxmrS0CoCj7_eh6g1Rjc29On7uo1U-indmi60aAF36LamVN36ImWj2LjAatTPsJOYMXzZ1p4mtr7RhQOn_i2eOilTeXFrivPfO-5UQCGYPSLsc7tYtiK96d2m1PR8kzzf8wCFQfreBsFS4zDmr9Cn27479js7SHfCUaiBxEaagCGRniowKzTHRjWLXkoOX7hBgzcgxP4GATkbMJvouquFe5HDx1uBen65HUOEb7EJWumJ-MO2h3s7FSlGYMD_TXhosu-Y3PTKj7epAjhg22tJvUGra-wMUzoI0Ba6WidNaz5oiP8IRx02w` {
+		t.Fatalf("VAtoken not set on client: %s", client.VAToken)
+	}
+
+	// Test client errors
+
+	// Test a correct response with a wrong status code
+	testServer.Response(404, odauthheader, notfoundErr)
+	_, err = client.vaauthorize("username", "password")
+	_ = testServer.WaitRequest()
+	if err == nil {
+		t.Fatalf("Request error not caught: %v", err)
+	}
+
+	// Test an API error
+	testServer.Response(500, odauthheader, vcdError)
+	_, err = client.vaauthorize("username", "password")
+	_ = testServer.WaitRequest()
+	if err == nil {
+		t.Fatalf("Request error not caught: %v", err)
+	}
+
+	// Test an API response that doesn't contain the param we're looking for.
+	testServer.Response(200, odauthheader, vaauthorizationErr)
+	_, err = client.vaauthorize("username", "password")
+	_ = testServer.WaitRequest()
+	if err == nil {
+		t.Fatalf("Request error not caught: %v", err)
+	}
+
+	// Test an un-parsable response.
+	testServer.Response(200, odauthheader, notfoundErr)
 	_, err = client.vaauthorize("username", "password")
 	_ = testServer.WaitRequest()
 	if err == nil {
@@ -746,4 +825,22 @@ var vabackendErr = `
 
 var vcdError = `
 <Error xmlns="http://www.vmware.com/vcloud/v1.5" message="Error Message" majorErrorCode="500" minorErrorCode="Server Error" vendorSpecificErrorCode="NoSpecificError" stackTrace="Hello my name is Stack Trace"/>
+	`
+var loginResponseBodyExample = `
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?><LoginResponseBody><serviceGroupIds>4fde19a4-7621-428e-b190-dd4db2e158cd</serviceGroupIds></LoginResponseBody>
+  `
+
+var odsession = `
+<?xml version="1.0" encoding="UTF-8"?>
+<Session xmlns="http://www.vmware.com/vcloud/v1.5" org="00000000-0000-0000-0000-000000000000" roles="Account Administrator" user="user@domain" userId="urn:vcloud:user:00000000-0000-0000-0000-000000000000" href="http://localhost:4444/api/compute/api/session" type="application/vnd.vmware.vcloud.session+xml" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.vmware.com/vcloud/v1.5 http://localhost:4444/api/compute/api/v1.5/schema/master.xsd">
+		<Link rel="down" href="http://localhost:4444/api/compute/api/org/" type="application/vnd.vmware.vcloud.orgList+xml"/>
+		<Link rel="remove" href="http://localhost:4444/api/compute/api/session"/>
+		<Link rel="down" href="http://localhost:4444/api/compute/api/admin/" type="application/vnd.vmware.admin.vcloud+xml"/>
+		<Link rel="down" href="http://localhost:4444/api/compute/api/org/00000000-0000-0000-0000-000000000000" name="00000000-0000-0000-0000-000000000000" type="application/vnd.vmware.vcloud.org+xml"/>
+		<Link rel="down" href="http://localhost:4444/api/compute/api/query" type="application/vnd.vmware.vcloud.query.queryList+xml"/>
+		<Link rel="entityResolver" href="http://localhost:4444/api/compute/api/entity/" type="application/vnd.vmware.vcloud.entity+xml"/>
+		<Link rel="down:extensibility" href="http://localhost:4444/api/compute/api/extensibility" type="application/vnd.vmware.vcloud.apiextensibility+xml"/>
+		<Link rel="down" href="http://localhost:4444/api/compute/api/vchs/query?type=edgeGateway" type="application/vnd.vmware.vchs.query.records+xml"/>
+		<Link rel="down" href="http://localhost:4444/api/compute/api/vchs/query?type=orgVdcNetwork" type="application/vnd.vmware.vchs.query.records+xml"/>
+</Session>
 	`

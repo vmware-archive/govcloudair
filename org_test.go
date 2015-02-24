@@ -5,6 +5,8 @@
 package govcloudair
 
 import (
+	"net/url"
+
 	. "gopkg.in/check.v1"
 )
 
@@ -53,3 +55,31 @@ var orgExample = `
 		<FullName>OrganizationName</FullName>
 	</Org>
 	`
+
+func (s *S) Test_GetOrg(c *C) {
+
+	testServer.Response(200, nil, orgExample)
+
+	var orgURI, _ = url.ParseRequestURI("http://localhost:4444/api/compute/api/org/00000000-0000-0000-0000-000000000000")
+	org, err := GetOrg(s.client, orgURI)
+
+	_ = testServer.WaitRequest()
+
+	c.Assert(err, IsNil)
+	c.Assert(org, NotNil)
+	c.Assert(org.Org.HREF, Equals, "http://localhost:4444/api/org/23bd2339-c55f-403c-baf3-13109e8c8d57")
+}
+
+func (s *S) Test_GetOrgVdc(c *C) {
+
+	testServer.Response(200, nil, orgExample)
+
+	var orgURI, _ = url.ParseRequestURI("http://localhost:4444/api/compute/api/org/00000000-0000-0000-0000-000000000000")
+	orgvdc, err := GetOrgVdc(s.client, orgURI)
+
+	_ = testServer.WaitRequest()
+
+	c.Assert(err, IsNil)
+	c.Assert(orgvdc, NotNil)
+	c.Assert(orgvdc[0].HREF, Equals, "http://localhost:4444/api/vdc/214cd6b2-3f7a-4ee5-9b0a-52b4001a4a84")
+}
