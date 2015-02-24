@@ -275,3 +275,22 @@ func (v *Vdc) FindVAppByID(vappid string) (VApp, error) {
 	return VApp{}, fmt.Errorf("can't find vApp")
 
 }
+
+//GetVApp returns a list of VApps in a VDC
+func (v *Vdc) GetVApp() (VApps []*types.ResourceReference, err error) {
+
+	err = v.Refresh()
+	if err != nil {
+		return []*types.ResourceReference{}, fmt.Errorf("error refreshing vdc: %s", err)
+	}
+
+	for _, resents := range v.Vdc.ResourceEntities {
+		for _, resent := range resents.ResourceEntity {
+			if resent.Type == "application/vnd.vmware.vcloud.vApp+xml" {
+				VApps = append(VApps, resent)
+			}
+		}
+	}
+
+	return VApps, nil
+}

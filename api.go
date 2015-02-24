@@ -6,6 +6,9 @@
 package govcloudair
 
 import (
+	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -16,18 +19,21 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff"
+	vcatypes "github.com/emccode/govcloudair/types/vcav1"
 	types "github.com/vmware/govcloudair/types/v56"
 )
 
 // Client provides a client to vCloud Air, values can be populated automatically using the Authenticate method.
 type Client struct {
-	VAToken       string      // vCloud Air authorization token
-	VAEndpoint    url.URL     // vCloud Air API endpoint
-	Region        string      // Region where the compute resource lives.
-	VCDToken      string      // Access Token (authorization header)
-	VCDAuthHeader string      // Authorization header
-	VCDVDCHREF    url.URL     // HREF of the backend VDC you're using
-	Http          http.Client // HttpClient is the client to use. Default will be used if not provided.
+	VAToken         string                   // vCloud Air authorization token
+	VAEndpoint      url.URL                  // vCloud Air API endpoint
+	Region          string                   // Region where the compute resource lives.
+	VCDToken        string                   // Access Token (authorization header)
+	VCDAuthHeader   string                   // Authorization header
+	VCDVDCHREF      url.URL                  // HREF of the backend VDC you're using
+	Http            http.Client              // HttpClient is the client to use. Default will be used if not provided.
+	ServiceGroupIds vcatypes.ServiceGroupIds // Returned list of Service Group IDs
+	VCDORGHREF      url.URL                  // HREF of the backend ORG you're using
 }
 
 // VCHS API
@@ -274,10 +280,30 @@ func NewClient() (*Client, error) {
 		u, _ = url.ParseRequestURI("https://vchs.vmware.com/api")
 	}
 
+	var insecureSkipVerify bool
+	if os.Getenv("VCLOUDAIR_INSECURE") == "true" {
+		insecureSkipVerify = true
+	} else {
+		insecureSkipVerify = false
+	}
+
+	pool := x509.NewCertPool()
+	if os.Getenv("VCLOUDAIR_USECERTS") == "true" {
+		pool.AppendCertsFromPEM(pemCerts)
+	}
+
 	Client := Client{
 		VAEndpoint: *u,
 		// Patching things up as we're hitting several TLS timeouts.
-		Http: http.Client{Transport: &http.Transport{TLSHandshakeTimeout: 120 * time.Second}},
+		Http: http.Client{
+			Transport: &http.Transport{
+				TLSHandshakeTimeout: 120 * time.Second,
+				TLSClientConfig: &tls.Config{
+					RootCAs:            pool,
+					InsecureSkipVerify: insecureSkipVerify,
+				},
+			},
+		},
 	}
 	return &Client, nil
 }
@@ -320,6 +346,13 @@ func (c *Client) Authenticate(username, password, computeid, vdcid string) (Vdc,
 // NewRequest creates a new HTTP request and applies necessary auth headers if
 // set.
 func (c *Client) NewRequest(params map[string]string, method string, u url.URL, body io.Reader) *http.Request {
+
+	debug := os.Getenv("VCLOUDAIR_SHOW_BODY")
+	if debug == "true" && body != nil {
+		buf := new(bytes.Buffer)
+		buf.ReadFrom(body)
+		fmt.Printf("\n\nXML DEBUG: \n%s\n\n", buf.String())
+	}
 
 	p := url.Values{}
 
@@ -420,4 +453,230 @@ func checkResp(resp *http.Response, err error) (*http.Response, error) {
 	default:
 		return nil, fmt.Errorf("unhandled API response, please report this issue, status code: %s", resp.Status)
 	}
+}
+
+func (c *Client) vaauthorizeod(user, pass string) (err error) {
+
+	if user == "" {
+		user = os.Getenv("VCLOUDAIR_USERNAME")
+	}
+
+	if pass == "" {
+		pass = os.Getenv("VCLOUDAIR_PASSWORD")
+	}
+
+	s := c.VAEndpoint
+	s.Path += "/iam/login"
+
+	req := c.NewRequest(map[string]string{}, "POST", s, nil)
+	req.SetBasicAuth(user, pass)
+	req.Header.Add("Accept", "application/xml;version=5.7")
+
+	resp, err := checkResp(c.Http.Do(req))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	vaToken := resp.Header.Get("vchs-authorization")
+	c.VAToken = fmt.Sprintf("Bearer %s", vaToken)
+
+	return
+}
+
+func (c *Client) GetBackendAuthOD(instanceAttributes vcatypes.InstanceAttributes) error {
+	uri, err := url.ParseRequestURI(instanceAttributes.SessionURI)
+	if err != nil {
+		return fmt.Errorf("Problem parsing org url:", instanceAttributes.SessionURI)
+	}
+
+	req := c.NewRequest(map[string]string{}, "POST", *uri, nil)
+
+	user := fmt.Sprintf("%v@%v", os.Getenv("VCLOUDAIR_USERNAME"), instanceAttributes.OrgName)
+	pass := os.Getenv("VCLOUDAIR_PASSWORD")
+
+	req.Header.Add("Accept", "application/*+xml;version=5.7")
+	req.SetBasicAuth(user, pass)
+
+	// TODO: wrap into checkresp to parse error
+	resp, err := checkResp(c.Http.Do(req))
+	if err != nil {
+		return fmt.Errorf("error processing backend url action: %s", err)
+	}
+	defer resp.Body.Close()
+
+	vcdToken := resp.Header.Get("x-vcloud-authorization")
+	c.VCDToken = vcdToken
+	c.VCDAuthHeader = "x-vcloud-authorization"
+
+	session := new(session)
+
+	if err = decodeBody(resp, session); err != nil {
+		return fmt.Errorf("error decoding vcloudsession response: %s", err)
+	}
+
+	for _, link := range session.Link {
+		if link.Type == "application/vnd.vmware.vcloud.org+xml" {
+			orgUri, err := url.ParseRequestURI(link.HREF)
+			if err != nil {
+				return fmt.Errorf("cannot parse endpoint coming from VCLOUDAIR_ENDPOINT")
+			}
+			c.VCDORGHREF = *orgUri
+			return nil
+		}
+	}
+
+	return fmt.Errorf("error finding the right backend resource")
+}
+
+// Authenticate is an helper function that performs a complete login in vCloud
+// Air and in the backend vCloud Director instance.
+func (c *Client) AuthenticateOD(username, password string) (err error) {
+	err = c.vaauthorizeod(username, password)
+	if err != nil {
+		return fmt.Errorf("error Authorizing: %s", err)
+	}
+
+	return
+
+}
+
+//GetPlans returns a PlanList
+func (c *Client) GetPlans() (planList vcatypes.PlanList, err error) {
+
+	s := c.VAEndpoint
+	s.Path += "/sc/plans"
+
+	req := c.NewRequest(map[string]string{}, "GET", s, nil)
+	req.Header.Add("Accept", "application/xml;version=5.7")
+	req.Header.Add("Authorization", c.VAToken)
+
+	resp, err := checkResp(c.Http.Do(req))
+	if err != nil {
+		return vcatypes.PlanList{}, fmt.Errorf("error getting service plans: %s", err)
+	}
+
+	if err = decodeBody(resp, &planList); err != nil {
+		return vcatypes.PlanList{}, fmt.Errorf("error decoding serivce plans response: %s", err)
+	}
+
+	return planList, nil
+
+}
+
+type InstanceList vcatypes.InstanceList
+
+//GetInstances returns a InstanceList
+func (c *Client) GetInstances() (instanceList InstanceList, err error) {
+
+	s := c.VAEndpoint
+	s.Path += "/sc/instances"
+
+	req := c.NewRequest(map[string]string{}, "GET", s, nil)
+	req.Header.Add("Accept", "application/xml;version=5.7")
+	req.Header.Add("Authorization", c.VAToken)
+
+	resp, err := checkResp(c.Http.Do(req))
+	if err != nil {
+		return InstanceList{}, fmt.Errorf("error getting instances: %s", err)
+	}
+
+	if err = decodeBody(resp, &instanceList); err != nil {
+		return InstanceList{}, fmt.Errorf("error decoding instances response: %s", err)
+	}
+
+	return instanceList, nil
+
+}
+
+type Instance vcatypes.Instance
+
+func (instance *Instance) GetOrg(client *Client) (org *Org, err error) {
+	uri, err := url.ParseRequestURI(instance.APIURL)
+	if err != nil {
+		return &Org{}, fmt.Errorf("Problem parsing org url:", instance.APIURL)
+	}
+
+	org, err = GetOrg(client, uri)
+	if err != nil {
+		return &Org{}, fmt.Errorf("Problem getting org:", err)
+	}
+
+	return org, nil
+}
+
+//GetUsers returns a UsersList
+func (c *Client) GetUsers() (users vcatypes.Users, err error) {
+
+	s := c.VAEndpoint
+	s.Path += "/iam/Users"
+
+	req := c.NewRequest(map[string]string{}, "GET", s, nil)
+	req.Header.Add("Accept", "application/xml;class=com.vmware.vchs.iam.api.schema.v2.classes.user.Users")
+	req.Header.Add("Authorization", c.VAToken)
+
+	resp, err := checkResp(c.Http.Do(req))
+	if err != nil {
+		return vcatypes.Users{}, fmt.Errorf("error getting users: %s", err)
+	}
+
+	if err = decodeBody(resp, &users); err != nil {
+		return vcatypes.Users{}, fmt.Errorf("error decoding users response: %s", err)
+	}
+
+	return users, nil
+
+}
+
+//GetBillableCosts returns a BilledCosts
+func (c *Client) GetBillableCosts(serviceGroupId string) (billableCosts vcatypes.BillableCosts, err error) {
+
+	s := c.VAEndpoint
+	s.Path += fmt.Sprintf("/metering/service-group/%v/billable-costs", serviceGroupId)
+
+	req := c.NewRequest(map[string]string{}, "GET", s, nil)
+	req.Header.Add("Accept", "application/xml;version=5.7")
+	req.Header.Add("Authorization", c.VAToken)
+
+	resp, err := checkResp(c.Http.Do(req))
+	if err != nil {
+		return vcatypes.BillableCosts{}, fmt.Errorf("error getting billable costs: %s", err)
+	}
+
+	if err = decodeBody(resp, &billableCosts); err != nil {
+		return vcatypes.BillableCosts{}, fmt.Errorf("error decoding billable costs response: %s", err)
+	}
+
+	return billableCosts, nil
+
+}
+
+//GetBillableCosts returns a BilledCosts
+func (c *Client) NewInstance(instanceSpecParams vcatypes.InstanceSpecParams) (instance vcatypes.Instance, err error) {
+
+	s := c.VAEndpoint
+	s.Path += "/sc/instances"
+
+	xmlOutput, err := xml.MarshalIndent(instanceSpecParams, "  ", "    ")
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+	}
+
+	b := bytes.NewBufferString(xml.Header + string(xmlOutput))
+
+	req := c.NewRequest(map[string]string{}, "POST", s, b)
+	req.Header.Add("Accept", "application/xml; class=com.vmware.vchs.sc.restapi.model.instancespecparamstype")
+	req.Header.Add("Authorization", c.VAToken)
+
+	resp, err := checkResp(c.Http.Do(req))
+	if err != nil {
+		return vcatypes.Instance{}, fmt.Errorf("error creating instance: %s", err)
+	}
+
+	if err = decodeBody(resp, &instance); err != nil {
+		return vcatypes.Instance{}, fmt.Errorf("error decoding instance creation response: %s", err)
+	}
+
+	return instance, nil
+
 }
