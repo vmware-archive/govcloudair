@@ -102,6 +102,20 @@ func (v *Vdc) FindVDCNetwork(network string) (OrgVDCNetwork, error) {
 	return OrgVDCNetwork{}, fmt.Errorf("can't find VDC Network: %s", network)
 }
 
+func (v *Vdc) GetVDCNetwork() (OrgVdcNetworks []*types.Reference, err error) {
+
+	for _, an := range v.Vdc.AvailableNetworks {
+		for _, n := range an.Network {
+			OrgVdcNetworks = append(OrgVdcNetworks, n)
+		}
+	}
+	if OrgVdcNetworks == nil {
+		return []*types.Reference{}, fmt.Errorf("Couldn't find any OrgVdcNetworks")
+	}
+
+	return OrgVdcNetworks, nil
+}
+
 func (v *Vdc) GetVDCOrg() (Org, error) {
 
 	for _, av := range v.Vdc.Link {
