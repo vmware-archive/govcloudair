@@ -55,18 +55,30 @@ func (o *Org) FindCatalog(catalog string) (Catalog, error) {
 	return Catalog{}, fmt.Errorf("can't find catalog: %s", catalog)
 }
 
+func (o *Org) GetCatalog() (catalogs []*types.Link, err error) {
+	for _, av := range o.Org.Link {
+		if av.Rel == "down" && av.Type == "application/vnd.vmware.vcloud.catalog+xml" {
+			catalogs = append(catalogs, av)
+		}
+	}
+
+	if catalogs == nil {
+		err = fmt.Errorf("No catalogs found")
+	}
+	return catalogs, err
+}
+
 //GetOrg returns an Org from a Org URL
 func GetOrg(client *Client, u *url.URL) (org *Org, err error) {
 	req := client.NewRequest(map[string]string{}, "GET", *u, nil)
 	req.Header.Add("Accept", "application/*+xml;version=5.7")
-	//req.Header.Add("x-vcloud-authorization", client.VCDToken)
 
 	resp, err := checkResp(client.Http.Do(req))
 	if err != nil {
 		return &Org{}, fmt.Errorf("error retreiving org: %s", err)
 	}
 
-	org = NewOrg(&Client{})
+	org = NewOrg(client)
 
 	if err = decodeBody(resp, org.Org); err != nil {
 		return &Org{}, fmt.Errorf("error decoding org response: %s", err)
