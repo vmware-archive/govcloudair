@@ -54,10 +54,22 @@ func (v *VApp) Refresh() error {
 	return nil
 }
 
-func (v *VApp) ComposeVApp(orgvdcnetwork OrgVDCNetwork, vapptemplate VAppTemplate, name string, description string) (Task, error) {
+func (v *VApp) ComposeVApp(orgvdcnetwork OrgVDCNetwork, vapptemplate VAppTemplate, name string, description string, vmname string) (Task, error) {
 
 	if vapptemplate.VAppTemplate.Children == nil || orgvdcnetwork.OrgVDCNetwork == nil {
 		return Task{}, fmt.Errorf("can't compose a new vApp, objects passed are not valid")
+	}
+
+	if name == "" && vmname == "" {
+		return Task{}, fmt.Errorf("need to specify either name or vmname")
+	}
+
+	if vmname == "" {
+		vmname = vapptemplate.VAppTemplate.Children.VM[0].Name
+	}
+
+	if name == "" {
+		name = fmt.Sprintf("%v-VApp", vmname)
 	}
 
 	// Build request XML
@@ -88,7 +100,7 @@ func (v *VApp) ComposeVApp(orgvdcnetwork OrgVDCNetwork, vapptemplate VAppTemplat
 		SourcedItem: &types.SourcedCompositionItemParam{
 			Source: &types.Reference{
 				HREF: vapptemplate.VAppTemplate.Children.VM[0].HREF,
-				Name: vapptemplate.VAppTemplate.Children.VM[0].Name,
+				Name: vmname,
 			},
 			InstantiationParams: &types.InstantiationParams{
 				NetworkConnectionSection: &types.NetworkConnectionSection{
