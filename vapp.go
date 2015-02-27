@@ -612,3 +612,23 @@ func (v *VApp) ChangeMemorySize(size int) (Task, error) {
 	return *task, nil
 
 }
+
+func (v *VApp) GetGuestCustomization() (guestCustomizationSection types.GuestCustomizationSection, err error) {
+
+	s, _ := url.ParseRequestURI(v.VApp.Children.VM[0].HREF)
+	s.Path += "/guestCustomizationSection/"
+
+	req := v.c.NewRequest(map[string]string{}, "GET", *s, nil)
+	req.Header.Add("Accept", "application/*+xml;version=5.6")
+
+	resp, err := checkResp(v.c.Http.Do(req))
+	if err != nil {
+		return types.GuestCustomizationSection{}, fmt.Errorf("error retreiving guest customization: %s", err)
+	}
+
+	if err = decodeBody(resp, &guestCustomizationSection); err != nil {
+		return types.GuestCustomizationSection{}, fmt.Errorf("error decoding guest customization response: %s", err)
+	}
+
+	return guestCustomizationSection, nil
+}
