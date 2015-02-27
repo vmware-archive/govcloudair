@@ -191,7 +191,7 @@ func (e *EdgeGateway) Remove1to1Mapping(internal, external string) (Task, error)
 
 }
 
-func (e *EdgeGateway) Create1to1Mapping(internal, external, description string) (Task, error) {
+func (e *EdgeGateway) Create1to1Mapping(internal string, external string, description string, inFirewallAny bool, outFirewallAny bool) (Task, error) {
 
 	// Refresh EdgeGateway rules
 	err := e.Refresh()
@@ -207,6 +207,11 @@ func (e *EdgeGateway) Create1to1Mapping(internal, external, description string) 
 	}
 
 	newedgeconfig := e.EdgeGateway.Configuration.EdgeGatewayServiceConfiguration
+
+	if newedgeconfig.NatService == nil {
+		newedgeconfig.NatService = &types.NatService{}
+
+	}
 
 	snat := &types.NatRule{
 		Description: description,
@@ -242,37 +247,41 @@ func (e *EdgeGateway) Create1to1Mapping(internal, external, description string) 
 
 	newedgeconfig.NatService.NatRule = append(newedgeconfig.NatService.NatRule, dnat)
 
-	fwin := &types.FirewallRule{
-		Description: description,
-		IsEnabled:   true,
-		Policy:      "allow",
-		Protocols: &types.FirewallRuleProtocols{
-			Any: true,
-		},
-		DestinationPortRange: "Any",
-		DestinationIP:        external,
-		SourcePortRange:      "Any",
-		SourceIP:             "Any",
-		EnableLogging:        false,
+	fwin := &types.FirewallRule{}
+	if inFirewallAny {
+		fwin = &types.FirewallRule{
+			Description: description,
+			IsEnabled:   true,
+			Policy:      "allow",
+			Protocols: &types.FirewallRuleProtocols{
+				Any: true,
+			},
+			DestinationPortRange: "Any",
+			DestinationIP:        external,
+			SourcePortRange:      "Any",
+			SourceIP:             "Any",
+			EnableLogging:        false,
+		}
+		newedgeconfig.FirewallService.FirewallRule = append(newedgeconfig.FirewallService.FirewallRule, fwin)
 	}
 
-	newedgeconfig.FirewallService.FirewallRule = append(newedgeconfig.FirewallService.FirewallRule, fwin)
-
-	fwout := &types.FirewallRule{
-		Description: description,
-		IsEnabled:   true,
-		Policy:      "allow",
-		Protocols: &types.FirewallRuleProtocols{
-			Any: true,
-		},
-		DestinationPortRange: "Any",
-		DestinationIP:        "Any",
-		SourcePortRange:      "Any",
-		SourceIP:             internal,
-		EnableLogging:        false,
+	fwout := &types.FirewallRule{}
+	if outFirewallAny {
+		fwout = &types.FirewallRule{
+			Description: description,
+			IsEnabled:   true,
+			Policy:      "allow",
+			Protocols: &types.FirewallRuleProtocols{
+				Any: true,
+			},
+			DestinationPortRange: "Any",
+			DestinationIP:        "Any",
+			SourcePortRange:      "Any",
+			SourceIP:             internal,
+			EnableLogging:        false,
+		}
+		newedgeconfig.FirewallService.FirewallRule = append(newedgeconfig.FirewallService.FirewallRule, fwout)
 	}
-
-	newedgeconfig.FirewallService.FirewallRule = append(newedgeconfig.FirewallService.FirewallRule, fwout)
 
 	output, err := xml.MarshalIndent(newedgeconfig, "  ", "    ")
 	if err != nil {
@@ -308,4 +317,48 @@ func (e *EdgeGateway) Create1to1Mapping(internal, external, description string) 
 	// The request was successful
 	return *task, nil
 
+}
+
+func (e *EdgeGateway) UpdateFirewall(newedgeconfig *types.GatewayFeatures) (Task, error) {
+	// Refresh EdgeGateway rules
+	err := e.Refresh()
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+	}
+
+	//newedgeconfig := e.EdgeGateway.Configuration.EdgeGatewayServiceConfiguration
+
+	output, err := xml.MarshalIndent(newedgeconfig, "  ", "    ")
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+	}
+
+	debug := os.Getenv("GOVCLOUDAIR_DEBUG")
+
+	if debug == "true" {
+		fmt.Printf("\n\nXML DEBUG: %s\n\n", string(output))
+	}
+
+	b := bytes.NewBufferString(xml.Header + string(output))
+
+	s, _ := url.ParseRequestURI(e.EdgeGateway.HREF)
+	s.Path += "/action/configureServices"
+
+	req := e.c.NewRequest(map[string]string{}, "POST", *s, b)
+
+	req.Header.Add("Content-Type", "application/vnd.vmware.admin.edgeGatewayServiceConfiguration+xml")
+
+	resp, err := checkResp(e.c.Http.Do(req))
+	if err != nil {
+		return Task{}, fmt.Errorf("error reconfiguring Edge Gateway: %s", err)
+	}
+
+	task := NewTask(e.c)
+
+	if err = decodeBody(resp, task.Task); err != nil {
+		return Task{}, fmt.Errorf("error decoding Task response: %s", err)
+	}
+
+	// The request was successful
+	return *task, nil
 }
