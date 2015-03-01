@@ -18,7 +18,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/cenkalti/backoff"
 	vcatypes "github.com/emccode/govcloudair/types/vcav1"
 	types "github.com/vmware/govcloudair/types/v56"
 )
@@ -210,25 +209,27 @@ func (c *Client) vagetbackendauth(s url.URL, cid string) error {
 	// Set Authorization Header
 	req.Header.Add("x-vchs-authorization", c.VAToken)
 
-	// Adding exponential backoff to retry
-	b := backoff.NewExponentialBackOff()
-	b.MaxElapsedTime = time.Duration(30 * time.Second)
+	// // Adding exponential backoff to retry
+	// b := backoff.NewExponentialBackOff()
+	// b.MaxElapsedTime = time.Duration(30 * time.Second)
+	//
+	// ticker := backoff.NewTicker(b)
+	//
+	// var err error
+	// var resp *http.Response
+	//
+	// for t := range ticker.C {
+	// 	resp, err = checkResp(c.Http.Do(req))
+	// 	if err != nil {
+	// 		fmt.Println(err, "retrying...", t)
+	// 		continue
+	// 	}
+	// 	ticker.Stop()
+	// 	break
+	//
+	// }
 
-	ticker := backoff.NewTicker(b)
-
-	var err error
-	var resp *http.Response
-
-	for t := range ticker.C {
-		resp, err = checkResp(c.Http.Do(req))
-		if err != nil {
-			fmt.Println(err, "retrying...", t)
-			continue
-		}
-		ticker.Stop()
-		break
-
-	}
+	resp, err := checkResp(c.Http.Do(req))
 
 	if err != nil {
 		return fmt.Errorf("error processing backend url action: %s", err)
@@ -287,24 +288,32 @@ func NewClient() (*Client, error) {
 		insecureSkipVerify = false
 	}
 
-	pool := x509.NewCertPool()
-	if os.Getenv("VCLOUDAIR_USECERTS") == "true" {
-		pool.AppendCertsFromPEM(pemCerts)
-	}
-
 	Client := Client{
 		VAEndpoint: *u,
-		// Patching things up as we're hitting several TLS timeouts.
+		//Patching things up as we're hitting several TLS timeouts.
 		Http: http.Client{
 			Transport: &http.Transport{
 				TLSHandshakeTimeout: 120 * time.Second,
 				TLSClientConfig: &tls.Config{
-					RootCAs:            pool,
 					InsecureSkipVerify: insecureSkipVerify,
 				},
 			},
 		},
 	}
+
+	if os.Getenv("VCLOUDAIR_USECERTS") == "true" {
+		pool := x509.NewCertPool()
+		pool.AppendCertsFromPEM(pemCerts)
+
+		Client.Http.Transport = &http.Transport{
+			TLSHandshakeTimeout: 120 * time.Second,
+			TLSClientConfig: &tls.Config{
+				RootCAs:            pool,
+				InsecureSkipVerify: insecureSkipVerify,
+			},
+		}
+	}
+
 	return &Client, nil
 }
 
