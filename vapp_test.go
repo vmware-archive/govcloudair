@@ -43,7 +43,7 @@ func (s *S) Test_ComposeVApp(c *C) {
 	c.Assert(err, IsNil)
 
 	// Compose VApp
-	task, err := s.vapp.ComposeVApp(net, vapptemplate, "name", "description")
+	task, err := s.vapp.ComposeVApp(net, vapptemplate, "name", "description", "vmname")
 	c.Assert(err, IsNil)
 	c.Assert(task.Task.OperationName, Equals, "vdcInstantiateVapp")
 	c.Assert(s.vapp.VApp.HREF, Equals, "http://localhost:4444/api/vApp/vapp-00000000-0000-0000-0000-000000000000")
@@ -190,7 +190,7 @@ func (s *S) Test_RunCustomizationScript(c *C) {
 	c.Assert(err, IsNil)
 
 	// Compose VApp
-	task, err := s.vapp.ComposeVApp(net, vapptemplate, "name", "description")
+	task, err := s.vapp.ComposeVApp(net, vapptemplate, "name", "description", "vmname")
 	c.Assert(err, IsNil)
 	c.Assert(task.Task.OperationName, Equals, "vdcInstantiateVapp")
 	c.Assert(s.vapp.VApp.HREF, Equals, "http://localhost:4444/api/vApp/vapp-00000000-0000-0000-0000-000000000000")
@@ -238,7 +238,7 @@ func (s *S) Test_ChangeCPUcount(c *C) {
 	c.Assert(err, IsNil)
 
 	// Compose VApp
-	task, err := s.vapp.ComposeVApp(net, vapptemplate, "name", "description")
+	task, err := s.vapp.ComposeVApp(net, vapptemplate, "name", "description", "vmname")
 	c.Assert(err, IsNil)
 	c.Assert(task.Task.OperationName, Equals, "vdcInstantiateVapp")
 	c.Assert(s.vapp.VApp.HREF, Equals, "http://localhost:4444/api/vApp/vapp-00000000-0000-0000-0000-000000000000")
@@ -286,7 +286,7 @@ func (s *S) Test_ChangeMemorySize(c *C) {
 	c.Assert(err, IsNil)
 
 	// Compose VApp
-	task, err := s.vapp.ComposeVApp(net, vapptemplate, "name", "description")
+	task, err := s.vapp.ComposeVApp(net, vapptemplate, "name", "description", "vmname")
 	c.Assert(err, IsNil)
 	c.Assert(task.Task.OperationName, Equals, "vdcInstantiateVapp")
 	c.Assert(s.vapp.VApp.HREF, Equals, "http://localhost:4444/api/vApp/vapp-00000000-0000-0000-0000-000000000000")
@@ -305,7 +305,7 @@ var instantiatedvappExample = `
 	<VApp deployed="false" href="http://localhost:4444/api/vApp/vapp-00000000-0000-0000-0000-000000000000" id="urn:vcloud:vapp:00000000-0000-0000-0000-000000000000" name="myVApp" ovfDescriptorUploaded="true" status="0" type="application/vnd.vmware.vcloud.vApp+xml" xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.vmware.com/vcloud/v1.5 http://10.6.32.3/api/v1.5/schema/master.xsd">
 	  <Link href="http://localhost:4444/api/network/f869430c-7490-4d32-bf34-4208b6059c21" name="M916272752-5793-default-routed" rel="down" type="application/vnd.vmware.vcloud.vAppNetwork+xml"/>
 	  <Link href="http://localhost:4444/api/vApp/vapp-00000000-0000-0000-0000-000000000000/controlAccess/" rel="down" type="application/vnd.vmware.vcloud.controlAccess+xml"/>
-	  <Link href="http://localhost:4444/api/vdc/214cd6b2-3f7a-4ee5-9b0a-52b4001a4a84" rel="up" type="application/vnd.vmware.vcloud.vdc+xml"/>
+	  <Link href="http://localhost:4444/api/vdc/00000000-0000-0000-0000-000000000000" rel="up" type="application/vnd.vmware.vcloud.vdc+xml"/>
 	  <Link href="http://localhost:4444/api/vApp/vapp-00000000-0000-0000-0000-000000000000/owner" rel="down" type="application/vnd.vmware.vcloud.owner+xml"/>
 	  <Link href="http://localhost:4444/api/vApp/vapp-00000000-0000-0000-0000-000000000000/metadata" rel="down" type="application/vnd.vmware.vcloud.metadata+xml"/>
 	  <Link href="http://localhost:4444/api/vApp/vapp-00000000-0000-0000-0000-000000000000/ovf" rel="ovf" type="text/xml"/>
@@ -341,7 +341,7 @@ var vappExample = `
 	  <Link href="http://localhost:4444/api/vApp/vapp-00000000-0000-0000-0000-000000000000/controlAccess/" rel="down" type="application/vnd.vmware.vcloud.controlAccess+xml"/>
 	  <Link href="http://localhost:4444/api/vApp/vapp-00000000-0000-0000-0000-000000000000/action/controlAccess" rel="controlAccess" type="application/vnd.vmware.vcloud.controlAccess+xml"/>
 	  <Link href="http://localhost:4444/api/vApp/vapp-00000000-0000-0000-0000-000000000000/action/recomposeVApp" rel="recompose" type="application/vnd.vmware.vcloud.recomposeVAppParams+xml"/>
-	  <Link href="http://localhost:4444/api/vdc/214cd6b2-3f7a-4ee5-9b0a-52b4001a4a84" rel="up" type="application/vnd.vmware.vcloud.vdc+xml"/>
+	  <Link href="http://localhost:4444/api/vdc/00000000-0000-0000-0000-000000000000" rel="up" type="application/vnd.vmware.vcloud.vdc+xml"/>
 	  <Link href="http://localhost:4444/api/vApp/vapp-00000000-0000-0000-0000-000000000000" rel="edit" type="application/vnd.vmware.vcloud.vApp+xml"/>
 	  <Link href="http://localhost:4444/api/vApp/vapp-00000000-0000-0000-0000-000000000000" rel="remove"/>
 	  <Link href="http://localhost:4444/api/vApp/vapp-00000000-0000-0000-0000-000000000000/action/enableDownload" rel="enable"/>
