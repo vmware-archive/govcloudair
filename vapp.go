@@ -406,7 +406,7 @@ func (v *VApp) Delete() (Task, error) {
 
 }
 
-func (v *VApp) RunCustomizationScript(computername, script string) (Task, error) {
+func (v *VApp) RunCustomizationScript(computername, script string, guestCustomizationSection *types.GuestCustomizationSection) (Task, error) {
 
 	err := v.Refresh()
 	if err != nil {
@@ -429,6 +429,15 @@ func (v *VApp) RunCustomizationScript(computername, script string) (Task, error)
 		Enabled:             true,
 		ComputerName:        computername,
 		CustomizationScript: script,
+	}
+
+	if guestCustomizationSection != nil {
+		vu.AdminPasswordEnabled = guestCustomizationSection.AdminPasswordEnabled
+		vu.AdminPasswordAuto = guestCustomizationSection.AdminPasswordAuto
+		vu.ResetPasswordRequired = guestCustomizationSection.ResetPasswordRequired
+		vu.AdminAutoLogonEnabled = guestCustomizationSection.AdminAutoLogonEnabled
+		vu.UseOrgSettings = guestCustomizationSection.UseOrgSettings
+		vu.JoinDomainEnabled = guestCustomizationSection.JoinDomainEnabled
 	}
 
 	output, err := xml.MarshalIndent(vu, "  ", "    ")
