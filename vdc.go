@@ -307,3 +307,40 @@ func (v *Vdc) GetVApp() (VApps []*types.ResourceReference, err error) {
 
 	return VApps, nil
 }
+
+//GetMedia returns a list of media for this VDC
+func (v *Vdc) GetMedia() (media []*types.ResourceReference, err error) {
+
+	err = v.Refresh()
+	if err != nil {
+		return []*types.ResourceReference{}, fmt.Errorf("error refreshing vdc: %s", err)
+	}
+
+	for _, resents := range v.Vdc.ResourceEntities {
+		for _, resent := range resents.ResourceEntity {
+			if resent.Type == "application/vnd.vmware.vcloud.media+xml" {
+				media = append(media, resent)
+			}
+		}
+	}
+
+	return media, nil
+}
+
+//FindMedia returns a media item
+func (v *Vdc) FindMedia(mediaName string) (media *types.ResourceReference, err error) {
+
+	medias, err := v.GetMedia()
+	if media != nil {
+		return &types.ResourceReference{}, fmt.Errorf("error getting media: %v", err)
+	}
+
+	for _, media := range medias {
+		if media.Name == mediaName {
+			return media, err
+		}
+	}
+
+	return &types.ResourceReference{}, fmt.Errorf("Error couldn't find media by name")
+
+}

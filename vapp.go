@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 
+	types2 "github.com/emccode/govcloudair/types/v56"
 	types "github.com/vmware/govcloudair/types/v56"
 )
 
@@ -640,4 +641,136 @@ func (v *VApp) GetGuestCustomization() (guestCustomizationSection types.GuestCus
 	}
 
 	return guestCustomizationSection, nil
+}
+
+func (v *VApp) InsertMedia(mediaName string) (Task, error) {
+
+	vdcLink := &types.Link{}
+	for _, link := range v.VApp.Link {
+		if link.Type == "application/vnd.vmware.vcloud.vdc+xml" {
+			vdcLink = link
+			break
+		}
+	}
+	if vdcLink == nil {
+		return Task{}, fmt.Errorf("error getting Vdc from VApp")
+	}
+
+	vdc := NewVdc(v.c)
+	vdc.Vdc = &types.Vdc{HREF: vdcLink.HREF}
+	vdc.Refresh()
+
+	media, err := vdc.FindMedia(mediaName)
+	if err != nil {
+		return Task{}, fmt.Errorf("error getting media: %v", err)
+	}
+
+	insertLink := types.Link{}
+	for _, link := range v.VApp.Children.VM[0].Link {
+		if link.Type == "application/vnd.vmware.vcloud.mediaInsertOrEjectParams+xml" && link.Rel == "media:insertMedia" {
+			insertLink = *link
+
+			break
+		}
+
+	}
+
+	mediaInsertOrEjectParams := &types2.MediaInsertOrEjectParams{
+		Xmlns: "http://www.vmware.com/vcloud/v1.5",
+		Media: &types2.Media{HREF: media.HREF},
+	}
+
+	output, err := xml.MarshalIndent(mediaInsertOrEjectParams, "", "  ")
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+	}
+
+	b := bytes.NewBufferString(xml.Header + string(output))
+
+	s, _ := url.ParseRequestURI(insertLink.HREF)
+
+	req := v.c.NewRequest(map[string]string{}, "POST", *s, b)
+
+	req.Header.Add("Content-Type", "application/vnd.vmware.vcloud.mediaInsertOrEjectParams+xml")
+
+	resp, err := checkResp(v.c.Http.Do(req))
+	if err != nil {
+		return Task{}, fmt.Errorf("error inserting media on vApp: %s", err)
+	}
+
+	task := NewTask(v.c)
+
+	if err = decodeBody(resp, task.Task); err != nil {
+		return Task{}, fmt.Errorf("error decoding Task response: %s", err)
+	}
+
+	// The request was successful
+	return *task, nil
+
+}
+
+func (v *VApp) EjectMedia(mediaName string) (Task, error) {
+
+	vdcLink := &types.Link{}
+	for _, link := range v.VApp.Link {
+		if link.Type == "application/vnd.vmware.vcloud.vdc+xml" {
+			vdcLink = link
+			break
+		}
+	}
+	if vdcLink == nil {
+		return Task{}, fmt.Errorf("error getting Vdc from VApp")
+	}
+
+	vdc := NewVdc(v.c)
+	vdc.Vdc = &types.Vdc{HREF: vdcLink.HREF}
+	vdc.Refresh()
+
+	media, err := vdc.FindMedia(mediaName)
+	if err != nil {
+		return Task{}, fmt.Errorf("error getting media: %v", err)
+	}
+
+	ejectLink := types.Link{}
+	for _, link := range v.VApp.Children.VM[0].Link {
+		if link.Type == "application/vnd.vmware.vcloud.mediaInsertOrEjectParams+xml" && link.Rel == "media:ejectMedia" {
+			ejectLink = *link
+
+			break
+		}
+
+	}
+
+	mediaInsertOrEjectParams := &types2.MediaInsertOrEjectParams{
+		Xmlns: "http://www.vmware.com/vcloud/v1.5",
+		Media: &types2.Media{HREF: media.HREF},
+	}
+
+	output, err := xml.MarshalIndent(mediaInsertOrEjectParams, "", "  ")
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+	}
+
+	b := bytes.NewBufferString(xml.Header + string(output))
+
+	s, _ := url.ParseRequestURI(ejectLink.HREF)
+
+	req := v.c.NewRequest(map[string]string{}, "POST", *s, b)
+
+	req.Header.Add("Content-Type", "application/vnd.vmware.vcloud.mediaInsertOrEjectParams+xml")
+
+	resp, err := checkResp(v.c.Http.Do(req))
+	if err != nil {
+		return Task{}, fmt.Errorf("error ejecting media from vApp: %s", err)
+	}
+
+	task := NewTask(v.c)
+
+	if err = decodeBody(resp, task.Task); err != nil {
+		return Task{}, fmt.Errorf("error decoding Task response: %s", err)
+	}
+
+	// The request was successful
+	return *task, nil
+
 }
