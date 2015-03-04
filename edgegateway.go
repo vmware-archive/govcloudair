@@ -8,9 +8,11 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 
+	types2 "github.com/emccode/govcloudair/types/v56"
 	types "github.com/vmware/govcloudair/types/v56"
 )
 
@@ -361,4 +363,136 @@ func (e *EdgeGateway) UpdateFirewall(newedgeconfig *types.GatewayFeatures) (Task
 
 	// The request was successful
 	return *task, nil
+}
+
+func (e *EdgeGateway) RequestPublicIP(networkname string, publicipcount string) (Task, error) {
+
+	// Refresh EdgeGateway rules
+	err := e.Refresh()
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+	}
+
+	gatewayInterfaces := e.EdgeGateway.Configuration.GatewayInterfaces.GatewayInterface
+
+	network := &types.Reference{}
+	for _, gatewayInterface := range gatewayInterfaces {
+		if gatewayInterface.Name == networkname {
+			network = gatewayInterface.Network
+			break
+		}
+	}
+
+	if network == nil {
+		log.Fatalf("err: couldn't find network name")
+	}
+
+	externalIPAddressActionList := &types2.ExternalIpAddressActionList{}
+	externalIPAddressActionList.Xmlns = "http://www.vmware.com/vcloud/networkservice/1.0"
+	externalIPAddressActionList.Allocation = &types2.Allocation{
+		ExternalNetworkName:                   network.Name,
+		ExternalNetworkRef:                    network.HREF,
+		NumberOfExternalIPAddressesToAllocate: publicipcount,
+	}
+
+	output, err := xml.MarshalIndent(externalIPAddressActionList, "  ", "    ")
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+	}
+
+	debug := os.Getenv("GOVCLOUDAIR_DEBUG")
+
+	if debug == "true" {
+		fmt.Printf("\n\nXML DEBUG: %s\n\n", string(output))
+	}
+
+	b := bytes.NewBufferString(xml.Header + string(output))
+
+	s, _ := url.ParseRequestURI(e.EdgeGateway.HREF)
+	s.Path += "/action/manageExternalIpAddresses"
+
+	req := e.c.NewRequest(map[string]string{}, "PUT", *s, b)
+	req.Header.Add("Accept", "application/xml;version=5.7")
+	req.Header.Add("Content-Type", "application/vnd.vmware.vchs.edgeGatewayIpAllocation.list+xml")
+
+	resp, err := checkResp(e.c.Http.Do(req))
+	if err != nil {
+		return Task{}, fmt.Errorf("error reconfiguring Edge Gateway: %s", err)
+	}
+
+	task := NewTask(e.c)
+
+	if err = decodeBody(resp, task.Task); err != nil {
+		return Task{}, fmt.Errorf("error decoding Task response: %s", err)
+	}
+
+	// The request was successful
+	return *task, nil
+
+}
+
+func (e *EdgeGateway) RemovePublicIP(networkname string, publicip string) (Task, error) {
+
+	// Refresh EdgeGateway rules
+	err := e.Refresh()
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+	}
+
+	gatewayInterfaces := e.EdgeGateway.Configuration.GatewayInterfaces.GatewayInterface
+
+	network := &types.Reference{}
+	for _, gatewayInterface := range gatewayInterfaces {
+		if gatewayInterface.Name == networkname {
+			network = gatewayInterface.Network
+			break
+		}
+	}
+
+	if network == nil {
+		log.Fatalf("err: couldn't find network name")
+	}
+
+	externalIPAddressActionList := &types2.ExternalIpAddressActionList{}
+	externalIPAddressActionList.Xmlns = "http://www.vmware.com/vcloud/networkservice/1.0"
+	externalIPAddressActionList.Deallocation = &types2.Deallocation{
+		ExternalNetworkName: network.Name,
+		ExternalNetworkRef:  network.HREF,
+		ExternalIPAddress:   publicip,
+	}
+
+	output, err := xml.MarshalIndent(externalIPAddressActionList, "  ", "    ")
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+	}
+
+	debug := os.Getenv("GOVCLOUDAIR_DEBUG")
+
+	if debug == "true" {
+		fmt.Printf("\n\nXML DEBUG: %s\n\n", string(output))
+	}
+
+	b := bytes.NewBufferString(xml.Header + string(output))
+
+	s, _ := url.ParseRequestURI(e.EdgeGateway.HREF)
+	s.Path += "/action/manageExternalIpAddresses"
+
+	req := e.c.NewRequest(map[string]string{}, "PUT", *s, b)
+	req.Header.Add("Accept", "application/xml;version=5.7")
+	req.Header.Add("Content-Type", "application/vnd.vmware.vchs.edgeGatewayIpAllocation.list+xml")
+
+	resp, err := checkResp(e.c.Http.Do(req))
+	if err != nil {
+		return Task{}, fmt.Errorf("error reconfiguring Edge Gateway: %s", err)
+	}
+
+	task := NewTask(e.c)
+
+	if err = decodeBody(resp, task.Task); err != nil {
+		return Task{}, fmt.Errorf("error decoding Task response: %s", err)
+	}
+
+	// The request was successful
+	return *task, nil
+
 }
