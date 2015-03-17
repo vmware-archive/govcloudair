@@ -5,6 +5,8 @@
 package govcloudair
 
 import (
+	"net/url"
+
 	. "gopkg.in/check.v1"
 )
 
@@ -30,7 +32,7 @@ func (s *S) Test_FindCatalog(c *C) {
 var orgExample = `
 	<?xml version="1.0" ?>
 	<Org href="http://localhost:4444/api/org/23bd2339-c55f-403c-baf3-13109e8c8d57" id="urn:vcloud:org:23bd2339-c55f-403c-baf3-13109e8c8d57" name="M916272752-5793" type="application/vnd.vmware.vcloud.org+xml" xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.vmware.com/vcloud/v1.5 http://10.6.32.3/api/v1.5/schema/master.xsd">
-		<Link href="http://localhost:4444/api/vdc/214cd6b2-3f7a-4ee5-9b0a-52b4001a4a84" name="M916272752-5793" rel="down" type="application/vnd.vmware.vcloud.vdc+xml"/>
+		<Link href="http://localhost:4444/api/vdc/00000000-0000-0000-0000-000000000000" name="M916272752-5793" rel="down" type="application/vnd.vmware.vcloud.vdc+xml"/>
 		<Link href="http://localhost:4444/api/tasksList/23bd2339-c55f-403c-baf3-13109e8c8d57" rel="down" type="application/vnd.vmware.vcloud.tasksList+xml"/>
 		<Link href="http://localhost:4444/api/catalog/e8a20fdf-8a78-440c-ac71-0420db59f854" name="Public Catalog" rel="down" type="application/vnd.vmware.vcloud.catalog+xml"/>
 		<Link href="http://localhost:4444/api/org/23bd2339-c55f-403c-baf3-13109e8c8d57/catalog/e8a20fdf-8a78-440c-ac71-0420db59f854/controlAccess/" rel="down" type="application/vnd.vmware.vcloud.controlAccess+xml"/>
@@ -53,3 +55,31 @@ var orgExample = `
 		<FullName>OrganizationName</FullName>
 	</Org>
 	`
+
+func (s *S) Test_GetOrg(c *C) {
+
+	testServer.Response(200, nil, orgExample)
+
+	var orgURI, _ = url.ParseRequestURI("http://localhost:4444/api/compute/api/org/00000000-0000-0000-0000-000000000000")
+	org, err := GetOrg(s.client, orgURI)
+
+	_ = testServer.WaitRequest()
+
+	c.Assert(err, IsNil)
+	c.Assert(org, NotNil)
+	c.Assert(org.Org.HREF, Equals, "http://localhost:4444/api/org/23bd2339-c55f-403c-baf3-13109e8c8d57")
+}
+
+func (s *S) Test_GetOrgVdc(c *C) {
+
+	testServer.Response(200, nil, orgExample)
+
+	var orgURI, _ = url.ParseRequestURI("http://localhost:4444/api/compute/api/org/00000000-0000-0000-0000-000000000000")
+	orgvdc, err := GetOrgVdc(s.client, orgURI)
+
+	_ = testServer.WaitRequest()
+
+	c.Assert(err, IsNil)
+	c.Assert(orgvdc, NotNil)
+	c.Assert(orgvdc[0].HREF, Equals, "http://localhost:4444/api/vdc/00000000-0000-0000-0000-000000000000")
+}

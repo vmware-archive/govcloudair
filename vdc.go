@@ -27,7 +27,6 @@ func NewVdc(c *Client) *Vdc {
 func (c *Client) retrieveVDC() (Vdc, error) {
 
 	req := c.NewRequest(map[string]string{}, "GET", c.VCDVDCHREF, nil)
-
 	resp, err := checkResp(c.Http.Do(req))
 	if err != nil {
 		return Vdc{}, fmt.Errorf("error retreiving vdc: %s", err)
@@ -101,6 +100,20 @@ func (v *Vdc) FindVDCNetwork(network string) (OrgVDCNetwork, error) {
 	}
 
 	return OrgVDCNetwork{}, fmt.Errorf("can't find VDC Network: %s", network)
+}
+
+func (v *Vdc) GetVDCNetwork() (OrgVdcNetworks []*types.Reference, err error) {
+
+	for _, an := range v.Vdc.AvailableNetworks {
+		for _, n := range an.Network {
+			OrgVdcNetworks = append(OrgVdcNetworks, n)
+		}
+	}
+	if OrgVdcNetworks == nil {
+		return []*types.Reference{}, fmt.Errorf("Couldn't find any OrgVdcNetworks")
+	}
+
+	return OrgVdcNetworks, nil
 }
 
 func (v *Vdc) GetVDCOrg() (Org, error) {
@@ -273,5 +286,61 @@ func (v *Vdc) FindVAppByID(vappid string) (VApp, error) {
 		}
 	}
 	return VApp{}, fmt.Errorf("can't find vApp")
+
+}
+
+//GetVApp returns a list of VApps in a VDC
+func (v *Vdc) GetVApp() (VApps []*types.ResourceReference, err error) {
+
+	err = v.Refresh()
+	if err != nil {
+		return []*types.ResourceReference{}, fmt.Errorf("error refreshing vdc: %s", err)
+	}
+
+	for _, resents := range v.Vdc.ResourceEntities {
+		for _, resent := range resents.ResourceEntity {
+			if resent.Type == "application/vnd.vmware.vcloud.vApp+xml" {
+				VApps = append(VApps, resent)
+			}
+		}
+	}
+
+	return VApps, nil
+}
+
+//GetMedia returns a list of media for this VDC
+func (v *Vdc) GetMedia() (media []*types.ResourceReference, err error) {
+
+	err = v.Refresh()
+	if err != nil {
+		return []*types.ResourceReference{}, fmt.Errorf("error refreshing vdc: %s", err)
+	}
+
+	for _, resents := range v.Vdc.ResourceEntities {
+		for _, resent := range resents.ResourceEntity {
+			if resent.Type == "application/vnd.vmware.vcloud.media+xml" {
+				media = append(media, resent)
+			}
+		}
+	}
+
+	return media, nil
+}
+
+//FindMedia returns a media item
+func (v *Vdc) FindMedia(mediaName string) (media *types.ResourceReference, err error) {
+
+	medias, err := v.GetMedia()
+	if media != nil {
+		return &types.ResourceReference{}, fmt.Errorf("error getting media: %v", err)
+	}
+
+	for _, media := range medias {
+		if media.Name == mediaName {
+			return media, err
+		}
+	}
+
+	return &types.ResourceReference{}, fmt.Errorf("Error couldn't find media by name")
 
 }

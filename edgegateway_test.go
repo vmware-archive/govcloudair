@@ -54,7 +54,7 @@ func (s *S) Test_1to1Mappings(c *C) {
 		"/api/admin/edgeGateway/00000000-0000-0000-0000-000000000000/action/configureServices": testutil.Response{200, nil, taskExample},
 	})
 
-	_, err = edge.Create1to1Mapping("10.0.0.1", "20.0.0.2", "description")
+	_, err = edge.Create1to1Mapping("10.0.0.1", "20.0.0.2", "description", true, true)
 	_ = testServer.WaitRequests(2)
 
 	c.Assert(err, IsNil)
