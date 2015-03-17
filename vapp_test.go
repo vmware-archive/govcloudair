@@ -6,7 +6,7 @@ package govcloudair
 
 import (
 	"github.com/vmware/govcloudair/testutil"
-
+	types "github.com/vmware/govcloudair/types/v56"
 	. "gopkg.in/check.v1"
 )
 
@@ -195,7 +195,7 @@ func (s *S) Test_RunCustomizationScript(c *C) {
 	c.Assert(task.Task.OperationName, Equals, "vdcInstantiateVapp")
 	c.Assert(s.vapp.VApp.HREF, Equals, "http://localhost:4444/api/vApp/vapp-00000000-0000-0000-0000-000000000000")
 
-	task, err = s.vapp.RunCustomizationScript("computername", "this is my script")
+	task, err = s.vapp.RunCustomizationScript("computername", "this is my script",&types.GuestCustomizationSection{})
 
 	c.Assert(err, IsNil)
 	c.Assert(task.Task.Status, Equals, "success")
