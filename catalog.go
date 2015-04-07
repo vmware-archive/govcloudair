@@ -55,3 +55,19 @@ func (c *Catalog) FindCatalogItem(catalogitem string) (CatalogItem, error) {
 
 	return CatalogItem{}, fmt.Errorf("can't find catalog item: %s", catalogitem)
 }
+
+func (c *Catalog) GetCatalogItem() (catalogItems []types.Reference, err error) {
+	for _, cis := range c.Catalog.CatalogItems {
+		for _, ci := range cis.CatalogItem {
+			if ci.Type == "application/vnd.vmware.vcloud.catalogItem+xml" {
+				catalogItems = append(catalogItems, *ci)
+			}
+		}
+	}
+
+	if catalogItems == nil {
+		return []types.Reference{}, nil
+	} else {
+		return catalogItems, nil
+	}
+}

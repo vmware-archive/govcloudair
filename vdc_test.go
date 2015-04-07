@@ -176,3 +176,16 @@ var vdcExample = `
 	  </VdcStorageProfiles>
 	</Vdc>
 	`
+
+func (s *S) Test_GetVApp(c *C) {
+
+	testServer.Response(200, nil, vdcExample)
+
+	vapps, err := s.vdc.GetVApp()
+
+	_ = testServer.WaitRequest()
+
+	c.Assert(err, IsNil)
+	c.Assert(vapps, NotNil)
+	c.Assert(vapps[0].HREF, Equals, "http://localhost:4444/api/vApp/vapp-00000000-0000-0000-0000-000000000000")
+}

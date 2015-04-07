@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 
+	types2 "github.com/emccode/govcloudair/types/v56"
 	types "github.com/vmware/govcloudair/types/v56"
 )
 
@@ -54,10 +55,22 @@ func (v *VApp) Refresh() error {
 	return nil
 }
 
-func (v *VApp) ComposeVApp(orgvdcnetwork OrgVDCNetwork, vapptemplate VAppTemplate, name string, description string) (Task, error) {
+func (v *VApp) ComposeVApp(orgvdcnetwork OrgVDCNetwork, vapptemplate VAppTemplate, name string, description string, vmname string) (Task, error) {
 
 	if vapptemplate.VAppTemplate.Children == nil || orgvdcnetwork.OrgVDCNetwork == nil {
 		return Task{}, fmt.Errorf("can't compose a new vApp, objects passed are not valid")
+	}
+
+	if name == "" && vmname == "" {
+		return Task{}, fmt.Errorf("need to specify either name or vmname")
+	}
+
+	if vmname == "" {
+		vmname = vapptemplate.VAppTemplate.Children.VM[0].Name
+	}
+
+	if name == "" {
+		name = fmt.Sprintf("%v-VApp", vmname)
 	}
 
 	// Build request XML
@@ -88,7 +101,7 @@ func (v *VApp) ComposeVApp(orgvdcnetwork OrgVDCNetwork, vapptemplate VAppTemplat
 		SourcedItem: &types.SourcedCompositionItemParam{
 			Source: &types.Reference{
 				HREF: vapptemplate.VAppTemplate.Children.VM[0].HREF,
-				Name: vapptemplate.VAppTemplate.Children.VM[0].Name,
+				Name: vmname,
 			},
 			InstantiationParams: &types.InstantiationParams{
 				NetworkConnectionSection: &types.NetworkConnectionSection{
@@ -394,7 +407,7 @@ func (v *VApp) Delete() (Task, error) {
 
 }
 
-func (v *VApp) RunCustomizationScript(computername, script string) (Task, error) {
+func (v *VApp) RunCustomizationScript(computername, script string, guestCustomizationSection *types.GuestCustomizationSection) (Task, error) {
 
 	err := v.Refresh()
 	if err != nil {
@@ -417,6 +430,15 @@ func (v *VApp) RunCustomizationScript(computername, script string) (Task, error)
 		Enabled:             true,
 		ComputerName:        computername,
 		CustomizationScript: script,
+	}
+
+	if guestCustomizationSection != nil {
+		vu.AdminPasswordEnabled = guestCustomizationSection.AdminPasswordEnabled
+		vu.AdminPasswordAuto = guestCustomizationSection.AdminPasswordAuto
+		vu.ResetPasswordRequired = guestCustomizationSection.ResetPasswordRequired
+		vu.AdminAutoLogonEnabled = guestCustomizationSection.AdminAutoLogonEnabled
+		vu.UseOrgSettings = guestCustomizationSection.UseOrgSettings
+		vu.JoinDomainEnabled = guestCustomizationSection.JoinDomainEnabled
 	}
 
 	output, err := xml.MarshalIndent(vu, "  ", "    ")
@@ -588,6 +610,158 @@ func (v *VApp) ChangeMemorySize(size int) (Task, error) {
 	resp, err := checkResp(v.c.Http.Do(req))
 	if err != nil {
 		return Task{}, fmt.Errorf("error customizing VM: %s", err)
+	}
+
+	task := NewTask(v.c)
+
+	if err = decodeBody(resp, task.Task); err != nil {
+		return Task{}, fmt.Errorf("error decoding Task response: %s", err)
+	}
+
+	// The request was successful
+	return *task, nil
+
+}
+
+func (v *VApp) GetGuestCustomization() (guestCustomizationSection types.GuestCustomizationSection, err error) {
+
+	s, _ := url.ParseRequestURI(v.VApp.Children.VM[0].HREF)
+	s.Path += "/guestCustomizationSection/"
+
+	req := v.c.NewRequest(map[string]string{}, "GET", *s, nil)
+	req.Header.Add("Accept", "application/*+xml;version=5.6")
+
+	resp, err := checkResp(v.c.Http.Do(req))
+	if err != nil {
+		return types.GuestCustomizationSection{}, fmt.Errorf("error retreiving guest customization: %s", err)
+	}
+
+	if err = decodeBody(resp, &guestCustomizationSection); err != nil {
+		return types.GuestCustomizationSection{}, fmt.Errorf("error decoding guest customization response: %s", err)
+	}
+
+	return guestCustomizationSection, nil
+}
+
+func (v *VApp) InsertMedia(mediaName string) (Task, error) {
+
+	vdcLink := &types.Link{}
+	for _, link := range v.VApp.Link {
+		if link.Type == "application/vnd.vmware.vcloud.vdc+xml" {
+			vdcLink = link
+			break
+		}
+	}
+	if vdcLink == nil {
+		return Task{}, fmt.Errorf("error getting Vdc from VApp")
+	}
+
+	vdc := NewVdc(v.c)
+	vdc.Vdc = &types.Vdc{HREF: vdcLink.HREF}
+	vdc.Refresh()
+
+	media, err := vdc.FindMedia(mediaName)
+	if err != nil {
+		return Task{}, fmt.Errorf("error getting media: %v", err)
+	}
+
+	insertLink := types.Link{}
+	for _, link := range v.VApp.Children.VM[0].Link {
+		if link.Type == "application/vnd.vmware.vcloud.mediaInsertOrEjectParams+xml" && link.Rel == "media:insertMedia" {
+			insertLink = *link
+
+			break
+		}
+
+	}
+
+	mediaInsertOrEjectParams := &types2.MediaInsertOrEjectParams{
+		Xmlns: "http://www.vmware.com/vcloud/v1.5",
+		Media: &types2.Media{HREF: media.HREF},
+	}
+
+	output, err := xml.MarshalIndent(mediaInsertOrEjectParams, "", "  ")
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+	}
+
+	b := bytes.NewBufferString(xml.Header + string(output))
+
+	s, _ := url.ParseRequestURI(insertLink.HREF)
+
+	req := v.c.NewRequest(map[string]string{}, "POST", *s, b)
+
+	req.Header.Add("Content-Type", "application/vnd.vmware.vcloud.mediaInsertOrEjectParams+xml")
+
+	resp, err := checkResp(v.c.Http.Do(req))
+	if err != nil {
+		return Task{}, fmt.Errorf("error inserting media on vApp: %s", err)
+	}
+
+	task := NewTask(v.c)
+
+	if err = decodeBody(resp, task.Task); err != nil {
+		return Task{}, fmt.Errorf("error decoding Task response: %s", err)
+	}
+
+	// The request was successful
+	return *task, nil
+
+}
+
+func (v *VApp) EjectMedia(mediaName string) (Task, error) {
+
+	vdcLink := &types.Link{}
+	for _, link := range v.VApp.Link {
+		if link.Type == "application/vnd.vmware.vcloud.vdc+xml" {
+			vdcLink = link
+			break
+		}
+	}
+	if vdcLink == nil {
+		return Task{}, fmt.Errorf("error getting Vdc from VApp")
+	}
+
+	vdc := NewVdc(v.c)
+	vdc.Vdc = &types.Vdc{HREF: vdcLink.HREF}
+	vdc.Refresh()
+
+	media, err := vdc.FindMedia(mediaName)
+	if err != nil {
+		return Task{}, fmt.Errorf("error getting media: %v", err)
+	}
+
+	ejectLink := types.Link{}
+	for _, link := range v.VApp.Children.VM[0].Link {
+		if link.Type == "application/vnd.vmware.vcloud.mediaInsertOrEjectParams+xml" && link.Rel == "media:ejectMedia" {
+			ejectLink = *link
+
+			break
+		}
+
+	}
+
+	mediaInsertOrEjectParams := &types2.MediaInsertOrEjectParams{
+		Xmlns: "http://www.vmware.com/vcloud/v1.5",
+		Media: &types2.Media{HREF: media.HREF},
+	}
+
+	output, err := xml.MarshalIndent(mediaInsertOrEjectParams, "", "  ")
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+	}
+
+	b := bytes.NewBufferString(xml.Header + string(output))
+
+	s, _ := url.ParseRequestURI(ejectLink.HREF)
+
+	req := v.c.NewRequest(map[string]string{}, "POST", *s, b)
+
+	req.Header.Add("Content-Type", "application/vnd.vmware.vcloud.mediaInsertOrEjectParams+xml")
+
+	resp, err := checkResp(v.c.Http.Do(req))
+	if err != nil {
+		return Task{}, fmt.Errorf("error ejecting media from vApp: %s", err)
 	}
 
 	task := NewTask(v.c)

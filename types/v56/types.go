@@ -1373,7 +1373,6 @@ type QueryResultEdgeGatewayRecordsType struct {
 }
 
 type QueryResultEdgeGatewayRecordType struct {
-	// Attributes
 	HREF                string `xml:"href,attr,omitempty"`                // The URI of the entity.
 	Type                string `xml:"type,attr,omitempty"`                // The MIME type of the entity.
 	Name                string `xml:"name,attr,omitempty"`                // EdgeGateway name.

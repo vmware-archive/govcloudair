@@ -7,7 +7,7 @@ package govcloudair
 var orgvdcnetExample = `
 <?xml version="1.0" encoding="UTF-8"?>
 <OrgVdcNetwork xmlns="http://www.vmware.com/vcloud/v1.5" status="1" name="networkName" id="urn:vcloud:network:cb0f4c9e-1a46-49d4-9fcb-d228000a6bc1" href="http://localhost:4444/api/network/cb0f4c9e-1a46-49d4-9fcb-d228000a6bc1" type="application/vnd.vmware.vcloud.orgVdcNetwork+xml" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.vmware.com/vcloud/v1.5 http://10.6.32.3/api/v1.5/schema/master.xsd">
-    <Link rel="up" href="http://localhost:4444/api/vdc/214cd6b2-3f7a-4ee5-9b0a-52b4001a4a84" type="application/vnd.vmware.vcloud.vdc+xml"/>
+    <Link rel="up" href="http://localhost:4444/api/vdc/00000000-0000-0000-0000-000000000000" type="application/vnd.vmware.vcloud.vdc+xml"/>
     <Link rel="down" href="http://localhost:4444/api/network/cb0f4c9e-1a46-49d4-9fcb-d228000a6bc1/metadata" type="application/vnd.vmware.vcloud.metadata+xml"/>
     <Link rel="down" href="http://localhost:4444/api/network/cb0f4c9e-1a46-49d4-9fcb-d228000a6bc1/allocatedAddresses/" type="application/vnd.vmware.vcloud.allocatedNetworkAddress+xml"/>
     <Description>This routed network was created with Create VDC.</Description>
