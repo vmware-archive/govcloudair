@@ -102,7 +102,7 @@ func setupTestContext(handler http.Handler) (testContext, error) {
 		return testContext{}, err
 	}
 
-	vdc, err := retrieveVDC(client)
+	vdc, err := RetrieveVDC(client)
 	if err != nil {
 		return testContext{}, err
 	}
