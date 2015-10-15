@@ -22,7 +22,7 @@ import (
 // Client provides a client to vCloud Air, values can be populated automatically using the Authenticate method.
 type Client struct {
 	VAToken       string      // vCloud Air authorization token
-	VAEndpoint    *url.URL    // vCloud Air API endpoint
+	VAEndpoint    url.URL     // vCloud Air API endpoint
 	Region        string      // Region where the compute resource lives.
 	VCDToken      string      // Access Token (authorization header)
 	VCDAuthHeader string      // Authorization header
@@ -70,9 +70,9 @@ func (c *Client) DoHTTP(req *http.Request) (*http.Response, error) {
 	return c.http.Do(req)
 }
 
-// VCDVDCHREF the base uril for the vcloud director instance
-func (c *Client) VCDVDCHREF() *url.URL {
-	return c.vcdHREF
+// BaseURL the base uril for the vcloud director instance
+func (c *Client) BaseURL() url.URL {
+	return *c.vcdHREF
 }
 
 func (c *Client) vaauthorize(user, pass string) (u *url.URL, err error) {
@@ -89,7 +89,7 @@ func (c *Client) vaauthorize(user, pass string) (u *url.URL, err error) {
 	s.Path += "/vchs/sessions"
 
 	// No point in checking for errors here
-	req := c.NewRequest(map[string]string{}, "POST", s, nil)
+	req := c.NewRequest(map[string]string{}, "POST", &s, nil)
 
 	// Set Basic Authentication Header
 	req.SetBasicAuth(user, pass)
@@ -283,7 +283,7 @@ func NewClient() (*Client, error) {
 	}
 
 	Client := Client{
-		VAEndpoint: u,
+		VAEndpoint: *u,
 		// Patching things up as we're hitting several TLS timeouts.
 		http: http.Client{Transport: &http.Transport{TLSHandshakeTimeout: 120 * time.Second}},
 	}
@@ -358,7 +358,7 @@ func (c *Client) Disconnect() error {
 	s := c.VAEndpoint
 	s.Path += "/vchs/session"
 
-	req := c.NewRequest(map[string]string{}, "DELETE", s, nil)
+	req := c.NewRequest(map[string]string{}, "DELETE", &s, nil)
 
 	// Add the Accept header for vCA
 	req.Header.Add("Accept", "application/xml;version=5.6")

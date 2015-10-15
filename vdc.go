@@ -28,7 +28,8 @@ func NewVdc(c Client) *Vdc {
 
 func retrieveVDC(c Client) (*Vdc, error) {
 
-	req := c.NewRequest(map[string]string{}, "GET", c.VCDVDCHREF(), nil)
+	bu := c.BaseURL()
+	req := c.NewRequest(map[string]string{}, "GET", &bu, nil)
 
 	resp, err := checkResp(c.DoHTTP(req))
 	if err != nil {

@@ -307,7 +307,8 @@ func TestClient_vagetbackendauth(t *testing.T) {
 	if assert.NoError(t, err) && assert.Equal(t, 1, cc.Pop()) {
 		assert.Equal(t, "01234567890123456789012345678901", client.VCDToken)
 		assert.Equal(t, "x-vcloud-authorization", client.VCDAuthHeader)
-		assert.Equal(t, serv.URL+"/api/vdc/00000000-0000-0000-0000-000000000000", client.VCDVDCHREF().String())
+		bu := client.BaseURL()
+		assert.Equal(t, serv.URL+"/api/vdc/00000000-0000-0000-0000-000000000000", (&bu).String())
 	}
 
 	// Test client errors
@@ -452,7 +453,8 @@ func TestClient_vagetbackendauth_env(t *testing.T) {
 	if assert.NoError(t, err) && assert.Equal(t, 1, cc.Pop()) {
 		assert.Equal(t, "01234567890123456789012345678901", client.VCDToken)
 		assert.Equal(t, "x-vcloud-authorization", client.VCDAuthHeader)
-		assert.Equal(t, serv.URL+"/api/vdc/00000000-0000-0000-0000-000000000000", client.VCDVDCHREF().String())
+		bu := client.BaseURL()
+		assert.Equal(t, serv.URL+"/api/vdc/00000000-0000-0000-0000-000000000000", bu.String())
 	}
 }
 
@@ -510,7 +512,6 @@ func TestClient_Authenticate(t *testing.T) {
 		"/api/vchs/services":                                                                                            {500, nil, vcdError},
 		"/api/vchs/compute/00000000-0000-0000-0000-000000000000":                                                        {200, nil, vacompute},
 		"/api/vchs/compute/00000000-0000-0000-0000-000000000000/vdc/00000000-0000-0000-0000-000000000000/vcloudsession": {201, nil, vabackend},
-		// "/api/vdc/00000000-0000-0000-0000-000000000000":                                                                 {200, nil, vdcExample},
 	}
 	serv = httptest.NewServer(testHandler(responses, cc))
 	os.Setenv("VCLOUDAIR_ENDPOINT", serv.URL+"/api")
@@ -529,7 +530,6 @@ func TestClient_Authenticate(t *testing.T) {
 		"/api/vchs/services":                                                                                            {200, nil, vaservices},
 		"/api/vchs/compute/00000000-0000-0000-0000-000000000000":                                                        {500, nil, vcdError},
 		"/api/vchs/compute/00000000-0000-0000-0000-000000000000/vdc/00000000-0000-0000-0000-000000000000/vcloudsession": {201, nil, vabackend},
-		// "/api/vdc/00000000-0000-0000-0000-000000000000":                                                                 {200, nil, vdcExample},
 	}
 
 	serv = httptest.NewServer(testHandler(responses, cc))
@@ -549,7 +549,6 @@ func TestClient_Authenticate(t *testing.T) {
 		"/api/vchs/services":                                                                                            {200, nil, vaservices},
 		"/api/vchs/compute/00000000-0000-0000-0000-000000000000":                                                        {200, nil, vacompute},
 		"/api/vchs/compute/00000000-0000-0000-0000-000000000000/vdc/00000000-0000-0000-0000-000000000000/vcloudsession": {500, nil, vcdError},
-		// "/api/vdc/00000000-0000-0000-0000-000000000000":                                                                 {200, nil, vdcExample},
 	}
 	serv = httptest.NewServer(testHandler(responses, cc))
 	os.Setenv("VCLOUDAIR_ENDPOINT", serv.URL+"/api")
@@ -562,26 +561,6 @@ func TestClient_Authenticate(t *testing.T) {
 	err = client.Authenticate("username", "password", "CI123456-789", "VDC12345-6789")
 	assert.Error(t, err)
 	assert.Equal(t, 13, cc.Pop())
-
-	// Botched vdc
-	responses = map[string]testResponse{
-		"/api/vchs/sessions":                                                                                            {201, authheader, vaauthorization},
-		"/api/vchs/services":                                                                                            {200, nil, vaservices},
-		"/api/vchs/compute/00000000-0000-0000-0000-000000000000":                                                        {200, nil, vacompute},
-		"/api/vchs/compute/00000000-0000-0000-0000-000000000000/vdc/00000000-0000-0000-0000-000000000000/vcloudsession": {201, nil, vabackend},
-		"/api/vdc/00000000-0000-0000-0000-000000000000":                                                                 {500, nil, vcdError},
-	}
-	serv = httptest.NewServer(testHandler(responses, cc))
-	os.Setenv("VCLOUDAIR_ENDPOINT", serv.URL+"/api")
-
-	client, err = NewClient()
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-
-	err = client.Authenticate("username", "password", "CI123456-789", "VDC12345-6789")
-	assert.Error(t, err)
-	assert.Equal(t, 5, cc.Pop())
 
 }
 
@@ -602,7 +581,8 @@ func makeClient(t testing.TB, handler http.Handler) (testContext, bool) {
 	if !assert.Equal(t, "x-vcloud-authorization", ctx.Client.VCDAuthHeader) {
 		return testContext{}, false
 	}
-	if !assert.Equal(t, ctx.Server.URL+"/api/vdc/00000000-0000-0000-0000-000000000000", ctx.Client.VCDVDCHREF().String()) {
+	bu := ctx.Client.BaseURL()
+	if !assert.Equal(t, ctx.Server.URL+"/api/vdc/00000000-0000-0000-0000-000000000000", bu.String()) {
 		return testContext{}, false
 	}
 

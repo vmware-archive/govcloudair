@@ -128,10 +128,10 @@ func (v *VApp) ComposeVApp(orgvdcnetwork OrgVDCNetwork, vapptemplate VAppTemplat
 
 	b := bytes.NewBufferString(xml.Header + string(output))
 
-	s := v.c.VCDVDCHREF()
+	s := v.c.BaseURL()
 	s.Path += "/action/composeVApp"
 
-	req := v.c.NewRequest(map[string]string{}, "POST", s, b)
+	req := v.c.NewRequest(map[string]string{}, "POST", &s, b)
 
 	req.Header.Add("Content-Type", "application/vnd.vmware.vcloud.composeVAppParams+xml")
 
