@@ -26,7 +26,8 @@ func NewVdc(c Client) *Vdc {
 	}
 }
 
-func retrieveVDC(c Client) (*Vdc, error) {
+// RetrieveVDC retrieves the vdc for the 5.6 client
+func RetrieveVDC(c Client) (*Vdc, error) {
 
 	bu := c.BaseURL()
 	req := c.NewRequest(map[string]string{}, "GET", &bu, nil)
