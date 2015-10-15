@@ -21,6 +21,7 @@ type Client interface {
 	BaseURL() url.URL // HREF of the backend VDC you're using
 	NewRequest(map[string]string, string, *url.URL, io.Reader) *http.Request
 	DoHTTP(*http.Request) (*http.Response, error)
+	Disconnect() error
 }
 
 // parseErr takes an error XML resp and returns a single string for use in error messages.

@@ -290,7 +290,7 @@ func NewClient() (*Client, error) {
 	return &Client, nil
 }
 
-// Authenticate is an helper function that performs a complete login in vCloud
+// Authenticate is a helper function that performs a complete login in vCloud
 // Air and in the backend vCloud Director instance.
 func (c *Client) Authenticate(username, password, computeid, vdcid string) error {
 	// Authorize
