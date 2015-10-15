@@ -3,10 +3,10 @@ package v57
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -42,11 +42,12 @@ func NewClient() (*Client, error) {
 		}
 	} else {
 		// Implicitly trust this URL parse.
-		u, _ = url.ParseRequestURI("https://vchs.vmware.com/api")
+		u, _ = url.ParseRequestURI("https://vca.vmware.com/api")
 	}
 	return &Client{
-		VAEndpoint: *u,
-		http:       http.Client{Transport: &http.Transport{TLSHandshakeTimeout: 120 * time.Second}},
+		VAEndpoint:    *u,
+		VCDAuthHeader: "X-Vcloud-Authorization",
+		http:          http.Client{Transport: &http.Transport{TLSHandshakeTimeout: 120 * time.Second}},
 	}, nil
 }
 
@@ -71,7 +72,7 @@ func (c *Client) Authenticate(username, password string) error {
 		password = os.Getenv("VCLOUDAIR_PASSWORD")
 	}
 
-	r, _ := http.NewRequest("POST", filepath.Join(c.VAEndpoint.String(), LoginPath), nil)
+	r, _ := http.NewRequest("POST", c.VAEndpoint.String()+LoginPath, nil)
 	r.Header.Set("Accept", JSONMimeV57)
 	r.SetBasicAuth(username, password)
 
@@ -91,6 +92,7 @@ func (c *Client) Authenticate(username, password string) error {
 		return err
 	}
 	result.AuthToken = resp.Header.Get("vchs-authorization")
+	c.VAToken = result.AuthToken
 	result.Config = c
 
 	instances, err := result.instances()
@@ -102,6 +104,7 @@ func (c *Client) Authenticate(username, password string) error {
 	for _, inst := range instances {
 		attrs = inst.Attrs()
 		if attrs != nil {
+			c.Region = inst.Region
 			break
 		}
 	}
@@ -117,6 +120,35 @@ func (c *Client) Authenticate(username, password string) error {
 // Disconnect performs a disconnection from the vCloud Air API endpoint.
 func (c *Client) Disconnect() error {
 	return nil
+}
+
+// NewRequest creates a new HTTP request and applies necessary auth headers if
+// set.
+func (c *Client) NewRequest(params map[string]string, method string, u *url.URL, body io.Reader) *http.Request {
+
+	p := url.Values{}
+
+	// Build up our request parameters
+	for k, v := range params {
+		p.Add(k, v)
+	}
+
+	// Add the params to our URL
+	u.RawQuery = p.Encode()
+
+	// Build the request, no point in checking for errors here as we're just
+	// passing a string version of an url.URL struct and http.NewRequest returns
+	// error only if can't process an url.ParseRequestURI().
+	req, _ := http.NewRequest(method, u.String(), body)
+
+	if c.VCDToken != "" {
+		// Add the authorization header
+		req.Header.Add(c.VCDAuthHeader, c.VCDToken)
+		// Add the Accept header for VCD
+		req.Header.Add("Accept", "application/*+xml;version="+Version)
+	}
+	return req
+
 }
 
 // NewAuthenticatedSession create a new vCloud Air authenticated client
@@ -222,6 +254,7 @@ func (a *accountInstanceAttrs) Authenticate(user, password string) error {
 	if resp.StatusCode/100 != 2 {
 		return fmt.Errorf("Could not complete authenticating with vCloud, because (status %d) %s\n", resp.StatusCode, resp.Status)
 	}
+	a.client.VCDToken = resp.Header.Get("x-vcloud-authorization")
 
 	return nil
 }
