@@ -42,8 +42,9 @@ func (s *S) Test_ComposeVApp(c *C) {
 	vapptemplate, err := catitem.GetVAppTemplate()
 	c.Assert(err, IsNil)
 
+	// TODO: Add storage_profile checks
 	// Compose VApp
-	task, err := s.vapp.ComposeVApp(net, vapptemplate, "name", "description")
+	task, err := s.vapp.ComposeVApp(net, vapptemplate, "name", "", "description")
 	c.Assert(err, IsNil)
 	c.Assert(task.Task.OperationName, Equals, "vdcInstantiateVapp")
 	c.Assert(s.vapp.VApp.HREF, Equals, "http://localhost:4444/api/vApp/vapp-00000000-0000-0000-0000-000000000000")
