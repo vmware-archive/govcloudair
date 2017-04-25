@@ -28,6 +28,11 @@ func NewVApp(c *Client) *VApp {
 	}
 }
 
+func (v *VCDClient) NewVApp(c *Client) VApp {
+	newvapp := NewVApp(c)
+	return *newvapp
+}
+
 func (v *VApp) Refresh() error {
 
 	if v.VApp.HREF == "" {
@@ -244,7 +249,7 @@ func (v *VApp) RemoveVM(vm VM) error {
 	return nil
 }
 
-func (v *VApp) ComposeVApp(orgvdcnetwork OrgVDCNetwork, vapptemplate VAppTemplate, name string, description string) (Task, error) {
+func (v *VApp) ComposeVApp(orgvdcnetwork OrgVDCNetwork, vapptemplate VAppTemplate, storage_profile_reference types.Reference, name string, description string) (Task, error) {
 
 	if vapptemplate.VAppTemplate.Children == nil || orgvdcnetwork.OrgVDCNetwork == nil {
 		return Task{}, fmt.Errorf("can't compose a new vApp, objects passed are not valid")
@@ -298,6 +303,7 @@ func (v *VApp) ComposeVApp(orgvdcnetwork OrgVDCNetwork, vapptemplate VAppTemplat
 				InnerNetwork:     orgvdcnetwork.OrgVDCNetwork.Name,
 				ContainerNetwork: orgvdcnetwork.OrgVDCNetwork.Name,
 			},
+			StorageProfile: &storage_profile_reference,
 		},
 	}
 
@@ -330,8 +336,10 @@ func (v *VApp) ComposeVApp(orgvdcnetwork OrgVDCNetwork, vapptemplate VAppTemplat
 		return Task{}, fmt.Errorf("error decoding vApp response: %s", err)
 	}
 
+	location, err := resp.Location()
+
 	task := NewTask(v.c)
-	task.Task = v.VApp.Tasks.Task[0]
+	task.Task.HREF = location.String()
 
 	// The request was successful
 	return *task, nil
