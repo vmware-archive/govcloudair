@@ -5,16 +5,20 @@
 package govcloudair
 
 import (
+	"bytes"
+	"encoding/xml"
 	"fmt"
+	types "github.com/ukcloud/govcloudair/types/v56"
+	"log"
 	"net/url"
+	"os"
 	"strings"
-
-	types "github.com/vmware/govcloudair/types/v56"
 )
 
 type Vdc struct {
-	Vdc *types.Vdc
-	c   *Client
+	Vdc  *types.Vdc
+	c    *Client
+	VApp *types.VApp
 }
 
 func NewVdc(c *Client) *Vdc {
@@ -67,7 +71,7 @@ func (v *Vdc) Refresh() error {
 	}
 
 	v.Vdc = unmarshalledVdc
-	
+
 	// The request was successful
 	return nil
 }
@@ -103,6 +107,29 @@ func (v *Vdc) FindVDCNetwork(network string) (OrgVDCNetwork, error) {
 	}
 
 	return OrgVDCNetwork{}, fmt.Errorf("can't find VDC Network: %s", network)
+}
+
+func (v *Vdc) FindStorageProfileReference(name string) (types.Reference, error) {
+
+	for _, sps := range v.Vdc.VdcStorageProfiles {
+		for _, sp := range sps.VdcStorageProfile {
+			if sp.Name == name {
+				return types.Reference{HREF: sp.HREF, Name: sp.Name}, nil
+			}
+		}
+		return types.Reference{}, fmt.Errorf("can't find VDC Storage_profile: %s", name)
+	}
+	return types.Reference{}, fmt.Errorf("can't find any VDC Storage_profiles")
+}
+
+func (v *Vdc) GetDefaultStorageProfileReference(storageprofiles *types.QueryResultRecordsType) (types.Reference, error) {
+
+	for _, spr := range storageprofiles.OrgVdcStorageProfileRecord {
+		if spr.IsDefaultStorageProfile {
+			return types.Reference{HREF: spr.HREF, Name: spr.Name}, nil
+		}
+	}
+	return types.Reference{}, fmt.Errorf("can't find Default VDC Storage_profile")
 }
 
 // Doesn't work with vCloud API 5.5, only vCloud Air
@@ -161,7 +188,19 @@ func (v *Vdc) FindEdgeGateway(edgegateway string) (EdgeGateway, error) {
 				return EdgeGateway{}, fmt.Errorf("error decoding edge gateway query response: %s", err)
 			}
 
-			u, err = url.ParseRequestURI(query.EdgeGatewayRecord.HREF)
+			var href string
+
+			for _, edge := range query.EdgeGatewayRecord {
+				if edge.Name == edgegateway {
+					href = edge.HREF
+				}
+			}
+
+			if href == "" {
+				return EdgeGateway{}, fmt.Errorf("can't find edge gateway with name: %s", edgegateway)
+			}
+
+			u, err = url.ParseRequestURI(href)
 			if err != nil {
 				return EdgeGateway{}, fmt.Errorf("error decoding edge gateway query response: %s", err)
 			}
@@ -186,6 +225,55 @@ func (v *Vdc) FindEdgeGateway(edgegateway string) (EdgeGateway, error) {
 	}
 	return EdgeGateway{}, fmt.Errorf("can't find Edge Gateway")
 
+}
+
+func (v *Vdc) ComposeRawVApp(name string) error {
+	vcomp := &types.ComposeVAppParams{
+		Ovf:     "http://schemas.dmtf.org/ovf/envelope/1",
+		Xsi:     "http://www.w3.org/2001/XMLSchema-instance",
+		Xmlns:   "http://www.vmware.com/vcloud/v1.5",
+		Deploy:  false,
+		Name:    name,
+		PowerOn: false,
+	}
+
+	output, err := xml.MarshalIndent(vcomp, "  ", "    ")
+	if err != nil {
+		return fmt.Errorf("error marshaling vapp compose: %s", err)
+	}
+
+	debug := os.Getenv("GOVCLOUDAIR_DEBUG")
+
+	if debug == "true" {
+		fmt.Printf("\n\nXML DEBUG: %s\n\n", string(output))
+	}
+
+	b := bytes.NewBufferString(xml.Header + string(output))
+
+	s := v.c.VCDVDCHREF
+	s.Path += "/action/composeVApp"
+
+	req := v.c.NewRequest(map[string]string{}, "POST", s, b)
+
+	req.Header.Add("Content-Type", "application/vnd.vmware.vcloud.composeVAppParams+xml")
+
+	resp, err := checkResp(v.c.Http.Do(req))
+	if err != nil {
+		return fmt.Errorf("error instantiating a new vApp: %s", err)
+	}
+
+	task := NewTask(v.c)
+
+	if err = decodeBody(resp, task.Task); err != nil {
+		return fmt.Errorf("error decoding task response: %s", err)
+	}
+
+	err = task.WaitTaskCompletion()
+	if err != nil {
+		return fmt.Errorf("Error performing task: %#v", err)
+	}
+
+	return nil
 }
 
 func (v *Vdc) FindVAppByName(vapp string) (VApp, error) {
@@ -217,7 +305,7 @@ func (v *Vdc) FindVAppByName(vapp string) (VApp, error) {
 				newvapp := NewVApp(v.c)
 
 				if err = decodeBody(resp, newvapp.VApp); err != nil {
-					return VApp{}, fmt.Errorf("error decoding vApp response: %s", err)
+					return VApp{}, fmt.Errorf("error decoding vApp response: %s", err.Error())
 				}
 
 				return *newvapp, nil
@@ -226,6 +314,62 @@ func (v *Vdc) FindVAppByName(vapp string) (VApp, error) {
 		}
 	}
 	return VApp{}, fmt.Errorf("can't find vApp: %s", vapp)
+}
+
+func (v *Vdc) FindVMByName(vapp VApp, vm string) (VM, error) {
+
+	err := v.Refresh()
+	if err != nil {
+		return VM{}, fmt.Errorf("error refreshing vdc: %s", err)
+	}
+
+	err = vapp.Refresh()
+	if err != nil {
+		return VM{}, fmt.Errorf("error refreshing vapp: %s", err)
+	}
+
+	//vApp Might Not Have Any VMs
+
+	if vapp.VApp.Children == nil {
+		return VM{}, fmt.Errorf("VApp Has No VMs")
+	}
+
+	log.Printf("[TRACE] Looking for VM: %s", vm)
+	for _, child := range vapp.VApp.Children.VM {
+
+		log.Printf("[TRACE] Found: %s", child.Name)
+		if child.Name == vm {
+
+			u, err := url.ParseRequestURI(child.HREF)
+
+			if err != nil {
+				return VM{}, fmt.Errorf("error decoding vdc response: %s", err)
+			}
+
+			// Querying the VApp
+			req := v.c.NewRequest(map[string]string{}, "GET", *u, nil)
+
+			resp, err := checkResp(v.c.Http.Do(req))
+			if err != nil {
+				return VM{}, fmt.Errorf("error retrieving vm: %s", err)
+			}
+
+			newvm := NewVM(v.c)
+
+			//body, err := ioutil.ReadAll(resp.Body)
+			//fmt.Println(string(body))
+
+			if err = decodeBody(resp, newvm.VM); err != nil {
+				return VM{}, fmt.Errorf("error decoding vm response: %s", err.Error())
+			}
+
+			return *newvm, nil
+
+		}
+
+	}
+	log.Printf("[TRACE] Couldn't find VM: %s", vm)
+	return VM{}, fmt.Errorf("can't find vm: %s", vm)
 }
 
 func (v *Vdc) FindVAppByID(vappid string) (VApp, error) {

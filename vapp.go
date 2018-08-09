@@ -11,9 +11,9 @@ import (
 	"log"
 	"net/url"
 	"os"
-	"strconv"
 
-	types "github.com/vmware/govcloudair/types/v56"
+	types "github.com/ukcloud/govcloudair/types/v56"
+	"strconv"
 )
 
 type VApp struct {
@@ -26,6 +26,11 @@ func NewVApp(c *Client) *VApp {
 		VApp: new(types.VApp),
 		c:    c,
 	}
+}
+
+func (v *VCDClient) NewVApp(c *Client) VApp {
+	newvapp := NewVApp(c)
+	return *newvapp
 }
 
 func (v *VApp) Refresh() error {
@@ -55,9 +60,133 @@ func (v *VApp) Refresh() error {
 	return nil
 }
 
-func (v *VApp) ComposeVApp(orgvdcnetwork OrgVDCNetwork, vapptemplate VAppTemplate, name string, description string) (Task, error) {
+func (v *VApp) AddVM(orgvdcnetworks []*types.OrgVDCNetwork, vapptemplate VAppTemplate, name string) (Task, error) {
 
-	if vapptemplate.VAppTemplate.Children == nil || orgvdcnetwork.OrgVDCNetwork == nil {
+	vcomp := &types.ReComposeVAppParams{
+		Ovf:         "http://schemas.dmtf.org/ovf/envelope/1",
+		Xsi:         "http://www.w3.org/2001/XMLSchema-instance",
+		Xmlns:       "http://www.vmware.com/vcloud/v1.5",
+		Deploy:      false,
+		Name:        v.VApp.Name,
+		PowerOn:     false,
+		Description: v.VApp.Description,
+		SourcedItem: &types.SourcedCompositionItemParam{
+			Source: &types.Reference{
+				HREF: vapptemplate.VAppTemplate.Children.VM[0].HREF,
+				Name: name,
+			},
+			InstantiationParams: &types.InstantiationParams{
+				NetworkConnectionSection: &types.NetworkConnectionSection{
+					Type: vapptemplate.VAppTemplate.Children.VM[0].NetworkConnectionSection.Type,
+					HREF: vapptemplate.VAppTemplate.Children.VM[0].NetworkConnectionSection.HREF,
+					Info: "Network config for sourced item",
+					PrimaryNetworkConnectionIndex: vapptemplate.VAppTemplate.Children.VM[0].NetworkConnectionSection.PrimaryNetworkConnectionIndex,
+				},
+			},
+		},
+	}
+
+	for index, orgvdcnetwork := range orgvdcnetworks {
+		vcomp.SourcedItem.InstantiationParams.NetworkConnectionSection.NetworkConnection = append(vcomp.SourcedItem.InstantiationParams.NetworkConnectionSection.NetworkConnection,
+			&types.NetworkConnection{
+				Network:                 orgvdcnetwork.Name,
+				NetworkConnectionIndex:  index,
+				IsConnected:             true,
+				IPAddressAllocationMode: "POOL",
+			},
+		)
+		vcomp.SourcedItem.NetworkAssignment = append(vcomp.SourcedItem.NetworkAssignment,
+			&types.NetworkAssignment{
+				InnerNetwork:     orgvdcnetwork.Name,
+				ContainerNetwork: orgvdcnetwork.Name,
+			},
+		)
+	}
+	log.Printf("%s", vcomp.SourcedItem.InstantiationParams.NetworkConnectionSection.NetworkConnection)
+
+	output, _ := xml.MarshalIndent(vcomp, "  ", "    ")
+
+	s, _ := url.ParseRequestURI(v.VApp.HREF)
+	s.Path += "/action/recomposeVApp"
+
+	log.Printf("[TRACE] Recompose XML: %s", string(output))
+
+	b := bytes.NewBufferString(xml.Header + string(output))
+
+	req := v.c.NewRequest(map[string]string{}, "POST", *s, b)
+
+	req.Header.Add("Content-Type", "application/vnd.vmware.vcloud.recomposeVAppParams+xml")
+
+	resp, err := checkResp(v.c.Http.Do(req))
+	if err != nil {
+		return Task{}, fmt.Errorf("error instantiating a new VM: %s", err)
+	}
+
+	task := NewTask(v.c)
+
+	if err = decodeBody(resp, task.Task); err != nil {
+		return Task{}, fmt.Errorf("error decoding task response: %s", err)
+	}
+
+	return *task, nil
+}
+
+func (v *VApp) RemoveVM(vm VM) error {
+
+	v.Refresh()
+	task := NewTask(v.c)
+	if v.VApp.Tasks != nil {
+		for _, t := range v.VApp.Tasks.Task {
+			task.Task = t
+			err := task.WaitTaskCompletion()
+			if err != nil {
+				return fmt.Errorf("Error performing task: %#v", err)
+			}
+		}
+	}
+
+	vcomp := &types.ReComposeVAppParams{
+		Ovf:   "http://schemas.dmtf.org/ovf/envelope/1",
+		Xsi:   "http://www.w3.org/2001/XMLSchema-instance",
+		Xmlns: "http://www.vmware.com/vcloud/v1.5",
+		DeleteItem: &types.DeleteItem{
+			HREF: vm.VM.HREF,
+		},
+	}
+
+	output, _ := xml.MarshalIndent(vcomp, "  ", "    ")
+
+	s, _ := url.ParseRequestURI(v.VApp.HREF)
+	s.Path += "/action/recomposeVApp"
+
+	b := bytes.NewBufferString(xml.Header + string(output))
+
+	req := v.c.NewRequest(map[string]string{}, "POST", *s, b)
+
+	req.Header.Add("Content-Type", "application/vnd.vmware.vcloud.recomposeVAppParams+xml")
+
+	resp, err := checkResp(v.c.Http.Do(req))
+	if err != nil {
+		return fmt.Errorf("error instantiating a new vApp: %s", err)
+	}
+
+	task = NewTask(v.c)
+
+	if err = decodeBody(resp, task.Task); err != nil {
+		return fmt.Errorf("error decoding task response: %s", err)
+	}
+
+	err = task.WaitTaskCompletion()
+	if err != nil {
+		return fmt.Errorf("Error performing task: %#v", err)
+	}
+
+	return nil
+}
+
+func (v *VApp) ComposeVApp(orgvdcnetworks []*types.OrgVDCNetwork, vapptemplate VAppTemplate, storageprofileref types.Reference, name string, description string) (Task, error) {
+
+	if vapptemplate.VAppTemplate.Children == nil || orgvdcnetworks == nil {
 		return Task{}, fmt.Errorf("can't compose a new vApp, objects passed are not valid")
 	}
 
@@ -73,17 +202,6 @@ func (v *VApp) ComposeVApp(orgvdcnetwork OrgVDCNetwork, vapptemplate VAppTemplat
 		InstantiationParams: &types.InstantiationParams{
 			NetworkConfigSection: &types.NetworkConfigSection{
 				Info: "Configuration parameters for logical networks",
-				NetworkConfig: &types.VAppNetworkConfiguration{
-					NetworkName: orgvdcnetwork.OrgVDCNetwork.Name,
-					Configuration: &types.NetworkConfiguration{
-						FenceMode: "bridged",
-						ParentNetwork: &types.Reference{
-							HREF: orgvdcnetwork.OrgVDCNetwork.HREF,
-							Name: orgvdcnetwork.OrgVDCNetwork.Name,
-							Type: orgvdcnetwork.OrgVDCNetwork.Type,
-						},
-					},
-				},
 			},
 		},
 		SourcedItem: &types.SourcedCompositionItemParam{
@@ -97,19 +215,43 @@ func (v *VApp) ComposeVApp(orgvdcnetwork OrgVDCNetwork, vapptemplate VAppTemplat
 					HREF: vapptemplate.VAppTemplate.Children.VM[0].NetworkConnectionSection.HREF,
 					Info: "Network config for sourced item",
 					PrimaryNetworkConnectionIndex: vapptemplate.VAppTemplate.Children.VM[0].NetworkConnectionSection.PrimaryNetworkConnectionIndex,
-					NetworkConnection: &types.NetworkConnection{
-						Network:                 orgvdcnetwork.OrgVDCNetwork.Name,
-						NetworkConnectionIndex:  vapptemplate.VAppTemplate.Children.VM[0].NetworkConnectionSection.NetworkConnection.NetworkConnectionIndex,
-						IsConnected:             true,
-						IPAddressAllocationMode: "POOL",
+				},
+			},
+		},
+	}
+
+	for index, orgvdcnetwork := range orgvdcnetworks {
+		vcomp.InstantiationParams.NetworkConfigSection.NetworkConfig = append(vcomp.InstantiationParams.NetworkConfigSection.NetworkConfig,
+			types.VAppNetworkConfiguration{
+				NetworkName: orgvdcnetwork.Name,
+				Configuration: &types.NetworkConfiguration{
+					FenceMode: "bridged",
+					ParentNetwork: &types.Reference{
+						HREF: orgvdcnetwork.HREF,
+						Name: orgvdcnetwork.Name,
+						Type: orgvdcnetwork.Type,
 					},
 				},
 			},
-			NetworkAssignment: &types.NetworkAssignment{
-				InnerNetwork:     orgvdcnetwork.OrgVDCNetwork.Name,
-				ContainerNetwork: orgvdcnetwork.OrgVDCNetwork.Name,
+		)
+		vcomp.SourcedItem.InstantiationParams.NetworkConnectionSection.NetworkConnection = append(vcomp.SourcedItem.InstantiationParams.NetworkConnectionSection.NetworkConnection,
+			&types.NetworkConnection{
+				Network:                 orgvdcnetwork.Name,
+				NetworkConnectionIndex:  index,
+				IsConnected:             true,
+				IPAddressAllocationMode: "POOL",
 			},
-		},
+		)
+		vcomp.SourcedItem.NetworkAssignment = append(vcomp.SourcedItem.NetworkAssignment,
+			&types.NetworkAssignment{
+				InnerNetwork:     orgvdcnetwork.Name,
+				ContainerNetwork: orgvdcnetwork.Name,
+			},
+		)
+	}
+
+	if storageprofileref.HREF != "" {
+		vcomp.SourcedItem.StorageProfile = &storageprofileref
 	}
 
 	output, err := xml.MarshalIndent(vcomp, "  ", "    ")
@@ -117,11 +259,7 @@ func (v *VApp) ComposeVApp(orgvdcnetwork OrgVDCNetwork, vapptemplate VAppTemplat
 		return Task{}, fmt.Errorf("error marshaling vapp compose: %s", err)
 	}
 
-	debug := os.Getenv("GOVCLOUDAIR_DEBUG")
-
-	if debug == "true" {
-		fmt.Printf("\n\nXML DEBUG: %s\n\n", string(output))
-	}
+	log.Printf("\n\nXML DEBUG: %s\n\n", string(output))
 
 	b := bytes.NewBufferString(xml.Header + string(output))
 
@@ -146,7 +284,6 @@ func (v *VApp) ComposeVApp(orgvdcnetwork OrgVDCNetwork, vapptemplate VAppTemplat
 
 	// The request was successful
 	return *task, nil
-
 }
 
 func (v *VApp) PowerOn() (Task, error) {
@@ -396,7 +533,10 @@ func (v *VApp) Delete() (Task, error) {
 }
 
 func (v *VApp) RunCustomizationScript(computername, script string) (Task, error) {
+	return v.Customize(computername, script, false)
+}
 
+func (v *VApp) Customize(computername, script string, changeSid bool) (Task, error) {
 	err := v.Refresh()
 	if err != nil {
 		return Task{}, fmt.Errorf("error refreshing vapp before running customization: %v", err)
@@ -418,6 +558,7 @@ func (v *VApp) RunCustomizationScript(computername, script string) (Task, error)
 		Enabled:             true,
 		ComputerName:        computername,
 		CustomizationScript: script,
+		ChangeSid:           false,
 	}
 
 	output, err := xml.MarshalIndent(vu, "  ", "    ")
@@ -455,7 +596,6 @@ func (v *VApp) RunCustomizationScript(computername, script string) (Task, error)
 
 	// The request was successful
 	return *task, nil
-
 }
 
 func (v *VApp) GetStatus() (string, error) {
@@ -464,6 +604,33 @@ func (v *VApp) GetStatus() (string, error) {
 		return "", fmt.Errorf("error refreshing vapp: %v", err)
 	}
 	return types.VAppStatuses[v.VApp.Status], nil
+}
+
+func (v *VApp) GetNetworkConnectionSection() (*types.NetworkConnectionSection, error) {
+
+	networkConnectionSection := &types.NetworkConnectionSection{}
+
+	if v.VApp.Children.VM[0].HREF == "" {
+		return networkConnectionSection, fmt.Errorf("cannot refresh, Object is empty")
+	}
+
+	u, _ := url.ParseRequestURI(v.VApp.Children.VM[0].HREF + "/networkConnectionSection/")
+
+	req := v.c.NewRequest(map[string]string{}, "GET", *u, nil)
+
+	req.Header.Add("Content-Type", "application/vnd.vmware.vcloud.networkConnectionSection+xml")
+
+	resp, err := checkResp(v.c.Http.Do(req))
+	if err != nil {
+		return networkConnectionSection, fmt.Errorf("error retrieving task: %s", err)
+	}
+
+	if err = decodeBody(resp, networkConnectionSection); err != nil {
+		return networkConnectionSection, fmt.Errorf("error decoding task response: %s", err)
+	}
+
+	// The request was successful
+	return networkConnectionSection, nil
 }
 
 func (v *VApp) ChangeCPUcount(size int) (Task, error) {
@@ -518,6 +685,56 @@ func (v *VApp) ChangeCPUcount(size int) (Task, error) {
 	req := v.c.NewRequest(map[string]string{}, "PUT", *s, b)
 
 	req.Header.Add("Content-Type", "application/vnd.vmware.vcloud.rasdItem+xml")
+
+	resp, err := checkResp(v.c.Http.Do(req))
+	if err != nil {
+		return Task{}, fmt.Errorf("error customizing VM: %s", err)
+	}
+
+	task := NewTask(v.c)
+
+	if err = decodeBody(resp, task.Task); err != nil {
+		return Task{}, fmt.Errorf("error decoding Task response: %s", err)
+	}
+
+	// The request was successful
+	return *task, nil
+
+}
+
+func (v *VApp) ChangeStorageProfile(name string) (Task, error) {
+	err := v.Refresh()
+	if err != nil {
+		return Task{}, fmt.Errorf("error refreshing vapp before running customization: %v", err)
+	}
+
+	if v.VApp.Children == nil {
+		return Task{}, fmt.Errorf("vApp doesn't contain any children, aborting customization")
+	}
+
+	vdc, err := v.c.retrieveVDC()
+	storageprofileref, err := vdc.FindStorageProfileReference(name)
+
+	newprofile := &types.VM{
+		Name:           v.VApp.Children.VM[0].Name,
+		StorageProfile: &storageprofileref,
+		Xmlns:          "http://www.vmware.com/vcloud/v1.5",
+	}
+
+	output, err := xml.MarshalIndent(newprofile, "  ", "    ")
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+	}
+
+	log.Printf("[DEBUG] VCD Client configuration: %s", output)
+
+	b := bytes.NewBufferString(xml.Header + string(output))
+
+	s, _ := url.ParseRequestURI(v.VApp.Children.VM[0].HREF)
+
+	req := v.c.NewRequest(map[string]string{}, "PUT", *s, b)
+
+	req.Header.Add("Content-Type", "application/vnd.vmware.vcloud.vm+xml")
 
 	resp, err := checkResp(v.c.Http.Do(req))
 	if err != nil {
@@ -723,51 +940,55 @@ func (v *VApp) SetOvf(parameters map[string]string) (Task, error) {
 
 }
 
-func (v *VApp) ChangeNetworkConfig(network, ip string) (Task, error) {
+func (v *VApp) ChangeNetworkConfig(networks []map[string]interface{}, ip string) (Task, error) {
 	err := v.Refresh()
 	if err != nil {
-		return Task{}, fmt.Errorf("error refreshing vapp before running customization: %v", err)
+		return Task{}, fmt.Errorf("error refreshing VM before running customization: %v", err)
 	}
 
 	if v.VApp.Children == nil {
 		return Task{}, fmt.Errorf("vApp doesn't contain any children, aborting customization")
 	}
 
-	// Determine what type of address is requested for the vApp
-	ipAllocationMode := "NONE"
-	ipAddress := "Any"
+	networksection, err := v.GetNetworkConnectionSection()
 
-	// TODO: Review current behaviour of using DHCP when left blank
-	if ip == "" || ip == "dhcp" {
-		ipAllocationMode = "DHCP"
-	} else if ip == "allocated" {
-		ipAllocationMode = "POOL"
-	} else if ip == "none" {
-		ipAllocationMode = "NONE"
-	} else if ip != "" {
-		ipAllocationMode = "MANUAL"
-		// TODO: Check a valid IP has been given
-		ipAddress = ip
+	for index, network := range networks {
+		// Determine what type of address is requested for the vApp
+		ipAllocationMode := "NONE"
+		ipAddress := "Any"
+
+		// TODO: Review current behaviour of using DHCP when left blank
+		if ip == "" || ip == "dhcp" || network["ip"] == "dhcp" {
+			ipAllocationMode = "DHCP"
+		} else if ip == "allocated" || network["ip"] == "allocated" {
+			ipAllocationMode = "POOL"
+		} else if ip == "none" || network["ip"] == "none" {
+			ipAllocationMode = "NONE"
+		} else if ip != "" || network["ip"] != "" {
+			ipAllocationMode = "MANUAL"
+			// TODO: Check a valid IP has been given
+			ipAddress = ip
+		}
+
+		log.Printf("[DEBUG] Function ChangeNetworkConfig() for %s invoked", network["orgnetwork"])
+
+		networksection.Xmlns = "http://www.vmware.com/vcloud/v1.5"
+		networksection.Ovf = "http://schemas.dmtf.org/ovf/envelope/1"
+		networksection.Info = "Specifies the available VM network connections"
+
+		networksection.NetworkConnection[index].NeedsCustomization = true
+		networksection.NetworkConnection[index].IPAddress = ipAddress
+		networksection.NetworkConnection[index].IPAddressAllocationMode = ipAllocationMode
+		networksection.NetworkConnection[index].MACAddress = ""
+
+		if network["is_primary"] == true {
+			networksection.PrimaryNetworkConnectionIndex = index
+		}
+
+		log.Printf("Networksection: %s", networksection)
 	}
 
-	networkConnection := &types.NetworkConnection{
-		Network:                 network,
-		NeedsCustomization:      true,
-		NetworkConnectionIndex:  0,
-		IPAddress:               ipAddress,
-		IsConnected:             true,
-		IPAddressAllocationMode: ipAllocationMode,
-	}
-
-	newnetwork := &types.NetworkConnectionSection{
-		Xmlns: "http://www.vmware.com/vcloud/v1.5",
-		Ovf:   "http://schemas.dmtf.org/ovf/envelope/1",
-		Info:  "Specifies the available VM network connections",
-		PrimaryNetworkConnectionIndex: 0,
-		NetworkConnection:             networkConnection,
-	}
-
-	output, err := xml.MarshalIndent(newnetwork, "  ", "    ")
+	output, err := xml.MarshalIndent(networksection, "  ", "    ")
 	if err != nil {
 		fmt.Printf("error: %v\n", err)
 	}
@@ -854,6 +1075,88 @@ func (v *VApp) ChangeMemorySize(size int) (Task, error) {
 	resp, err := checkResp(v.c.Http.Do(req))
 	if err != nil {
 		return Task{}, fmt.Errorf("error customizing VM: %s", err)
+	}
+
+	task := NewTask(v.c)
+
+	if err = decodeBody(resp, task.Task); err != nil {
+		return Task{}, fmt.Errorf("error decoding Task response: %s", err)
+	}
+
+	// The request was successful
+	return *task, nil
+
+}
+
+func (v *VApp) GetNetworkConfig() (*types.NetworkConfigSection, error) {
+
+	networkConfig := &types.NetworkConfigSection{}
+
+	if v.VApp.HREF == "" {
+		return networkConfig, fmt.Errorf("cannot refresh, Object is empty")
+	}
+
+	u, _ := url.ParseRequestURI(v.VApp.HREF + "/networkConfigSection/")
+
+	req := v.c.NewRequest(map[string]string{}, "GET", *u, nil)
+
+	req.Header.Add("Content-Type", "application/vnd.vmware.vcloud.networkConfigSection+xml")
+
+	resp, err := checkResp(v.c.Http.Do(req))
+	if err != nil {
+		return networkConfig, fmt.Errorf("error retrieving task: %s", err)
+	}
+
+	if err = decodeBody(resp, networkConfig); err != nil {
+		return networkConfig, fmt.Errorf("error decoding task response: %s", err)
+	}
+
+	// The request was successful
+	return networkConfig, nil
+}
+
+func (v *VApp) AddRAWNetworkConfig(orgvdcnetworks []*types.OrgVDCNetwork) (Task, error) {
+
+	networkConfig := &types.NetworkConfigSection{
+		Info:  "Configuration parameters for logical networks",
+		Ovf:   "http://schemas.dmtf.org/ovf/envelope/1",
+		Type:  "application/vnd.vmware.vcloud.networkConfigSection+xml",
+		Xmlns: "http://www.vmware.com/vcloud/v1.5",
+	}
+
+	for _, network := range orgvdcnetworks {
+		networkConfig.NetworkConfig = append(networkConfig.NetworkConfig,
+			types.VAppNetworkConfiguration{
+				NetworkName: network.Name,
+				Configuration: &types.NetworkConfiguration{
+					ParentNetwork: &types.Reference{
+						HREF: network.HREF,
+					},
+					FenceMode: "bridged",
+				},
+			},
+		)
+	}
+
+	output, err := xml.MarshalIndent(networkConfig, "  ", "    ")
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+	}
+
+	log.Printf("[DEBUG] RAWNETWORK Config NetworkXML: %s", output)
+
+	b := bytes.NewBufferString(xml.Header + string(output))
+
+	s, _ := url.ParseRequestURI(v.VApp.HREF)
+	s.Path += "/networkConfigSection/"
+
+	req := v.c.NewRequest(map[string]string{}, "PUT", *s, b)
+
+	req.Header.Add("Content-Type", "application/vnd.vmware.vcloud.networkconfigsection+xml")
+
+	resp, err := checkResp(v.c.Http.Do(req))
+	if err != nil {
+		return Task{}, fmt.Errorf("error adding vApp Network: %s", err)
 	}
 
 	task := NewTask(v.c)

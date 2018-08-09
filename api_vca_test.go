@@ -12,7 +12,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/vmware/govcloudair/testutil"
+	"github.com/ukcloud/govcloudair/testutil"
 	. "gopkg.in/check.v1"
 )
 
@@ -27,6 +27,7 @@ type S struct {
 	client *VAClient
 	vdc    Vdc
 	vapp   *VApp
+	vm     *VM
 }
 
 var _ = Suite(&S{})
