@@ -149,7 +149,7 @@ func TestClient_vaacquireservice(t *testing.T) {
 	}
 
 	if vacomputehref.String() != "http://localhost:4444/api/vchs/compute/00000000-0000-0000-0000-000000000000" {
-		t.Fatalf("VAComputeHREF not set on client: %s", vacomputehref)
+		t.Fatalf("VAComputeHREF not set on client: %s", vacomputehref.String())
 	}
 
 	if client.Region != "US - Anywhere" {
@@ -212,7 +212,7 @@ func TestClient_vaacquirecompute(t *testing.T) {
 	}
 
 	if vavdchref.String() != "http://localhost:4444/api/vchs/compute/00000000-0000-0000-0000-000000000000/vdc/00000000-0000-0000-0000-000000000000/vcloudsession" {
-		t.Fatalf("VAVDCHREF not set on client: %s", vavdchref)
+		t.Fatalf("VAVDCHREF not set on client: %s", vavdchref.String())
 	}
 
 	// Test client errors
@@ -276,7 +276,7 @@ func TestClient_vagetbackendauth(t *testing.T) {
 		t.Fatalf("VCDAuthHeader not set on client: %s", client.Client.VCDAuthHeader)
 	}
 	if client.Client.VCDVDCHREF.String() != "http://localhost:4444/api/vdc/00000000-0000-0000-0000-000000000000" {
-		t.Fatalf("VDC not set on client: %s", client.Client.VCDVDCHREF)
+		t.Fatalf("VDC not set on client: %s", client.Client.VCDVDCHREF.String())
 	}
 
 	// Test client errors
@@ -368,7 +368,7 @@ func TestClient_vaacquireservice_env(t *testing.T) {
 	}
 
 	if vacomputehref.String() != "http://localhost:4444/api/vchs/compute/00000000-0000-0000-0000-000000000000" {
-		t.Fatalf("VAComputeHREF not set on client: %s", vacomputehref)
+		t.Fatalf("VAComputeHREF not set on client: %s", vacomputehref.String())
 	}
 
 	if client.Region != "US - Anywhere" {
@@ -399,7 +399,7 @@ func TestClient_vaacquirecompute_env(t *testing.T) {
 	}
 
 	if vavdchref.String() != "http://localhost:4444/api/vchs/compute/00000000-0000-0000-0000-000000000000/vdc/00000000-0000-0000-0000-000000000000/vcloudsession" {
-		t.Fatalf("VAVDCHREF not set on client: %s", vavdchref)
+		t.Fatalf("VAVDCHREF not set on client: %s", vavdchref.String())
 	}
 
 }
@@ -432,7 +432,7 @@ func TestClient_vagetbackendauth_env(t *testing.T) {
 		t.Fatalf("VCDAuthHeader not set on client: %s", client.Client.VCDAuthHeader)
 	}
 	if client.Client.VCDVDCHREF.String() != "http://localhost:4444/api/vdc/00000000-0000-0000-0000-000000000000" {
-		t.Fatalf("VDC not set on client: %s", client.Client.VCDVDCHREF)
+		t.Fatalf("VDC not set on client: %s", client.Client.VCDVDCHREF.String())
 	}
 
 }
@@ -611,7 +611,7 @@ func makeClient(t *testing.T) VAClient {
 		t.Fatalf("VCDAuthHeader not set on client: %s", client.Client.VCDAuthHeader)
 	}
 	if client.Client.VCDVDCHREF.String() != "http://localhost:4444/api/vdc/00000000-0000-0000-0000-000000000000" {
-		t.Fatalf("VDC not set on client: %s", client.Client.VCDVDCHREF)
+		t.Fatalf("VDC not set on client: %s", client.Client.VCDVDCHREF.String())
 	}
 
 	return *client
